@@ -54,7 +54,13 @@ export class XeniaApi {
         });
       });
 
-      req.on('error', () => resolve({}));
+      // ECONNRESET/EPIPE are expected on POST — Xenia closes the socket after responding
+      req.on('error', (e: NodeJS.ErrnoException) => {
+        if (e.code !== 'ECONNRESET' && e.code !== 'EPIPE') {
+          this.log.warn('[XeniaAPI] Request error on ' + method + ' ' + path + ': ' + e.message);
+        }
+        resolve({});
+      });
       req.setTimeout(8000, () => { req.destroy(); resolve({}); });
       if (data) { req.write(data); }
       req.end();
