@@ -1,0 +1,36 @@
+{
+  "pluginAlias": "XeniaEspresso",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Plugin naam",
+        "type": "string",
+        "default": "Xenia Espresso",
+        "required": true
+      },
+      "ip": {
+        "title": "IP-adres van de Xenia",
+        "type": "string",
+        "required": true,
+        "placeholder": "192.168.1.100",
+        "description": "Het lokale IP-adres van je Xenia espressomachine op het netwerk."
+      },
+      "pollInterval": {
+        "title": "Status polling interval (seconden)",
+        "type": "integer",
+        "default": 30,
+        "minimum": 5,
+        "maximum": 300,
+        "description": "Hoe vaak de status van de machine wordt opgehaald."
+      }
+    }
+  },
+  "layout": [
+    "name",
+    "ip",
+    "pollInterval"
+  ]
+}
