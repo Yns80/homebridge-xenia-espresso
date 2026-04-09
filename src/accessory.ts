@@ -14,6 +14,8 @@ import { XeniaAction } from './settings';
  *   - TemperatureSensor "Brew Group Temperature"   → BG_SENS_TEMP_A
  *   - Thermostat "Boiler Target Temperature"       → BB_SET_TEMP
  *   - LeakSensor "Water Tank"        → PU_SENS_WATER_TANK_LEVEL
+ *   - AirQualitySensor "Steam Boiler Pressure" → SB_SENS_PRESS (bar)
+ *   - AirQualitySensor "Pump Pressure"         → PU_SENS_PRESS (bar)
  */
 export class XeniaMachineAccessory {
   private mainSwitch: Service;
@@ -23,6 +25,8 @@ export class XeniaMachineAccessory {
   private brewGroupTempSensor: Service;
   private thermostat: Service;
   private waterSensor: Service;
+  private steamPressureSensor: Service;
+  private pumpPressureSensor: Service;
   private infoService: Service;
 
   private readonly api: XeniaApi;
@@ -36,6 +40,8 @@ export class XeniaMachineAccessory {
     brewGroupTemp: 0,
     targetTemp: 93,
     waterEmpty: false,
+    steamPressure: 0,
+    pumpPressure: 0,
   };
 
   constructor(
@@ -142,6 +148,28 @@ export class XeniaMachineAccessory {
     this.waterSensor.getCharacteristic(this.platform.Characteristic.LeakDetected)
       .onGet(() => this.state.waterEmpty ? 1 : 0);
 
+    // ── Steam Boiler Pressure (SB_SENS_PRESS) ────────────────────────
+    // HomeKit has no native pressure service — we use AirQualitySensor
+    // as a numeric display tile. Eve app shows the raw value in bar.
+    this.steamPressureSensor =
+      this.accessory.getService('Steam Boiler Pressure') ||
+      this.accessory.addService(this.platform.Service.AirQualitySensor, 'Steam Boiler Pressure', 'steam-pressure');
+    this.steamPressureSensor
+      .setCharacteristic(this.platform.Characteristic.Name, 'Steam Boiler Pressure')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Steam Boiler Pressure');
+    this.steamPressureSensor.getCharacteristic(this.platform.Characteristic.AirQuality)
+      .onGet(() => 1); // 1 = EXCELLENT, keeps the tile green
+
+    // ── Pump Pressure (PU_SENS_PRESS) ────────────────────────────────
+    this.pumpPressureSensor =
+      this.accessory.getService('Pump Pressure') ||
+      this.accessory.addService(this.platform.Service.AirQualitySensor, 'Pump Pressure', 'pump-pressure');
+    this.pumpPressureSensor
+      .setCharacteristic(this.platform.Characteristic.Name, 'Pump Pressure')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Pump Pressure');
+    this.pumpPressureSensor.getCharacteristic(this.platform.Characteristic.AirQuality)
+      .onGet(() => 1);
+
     // ── Start polling ─────────────────────────────────────────────────
     this.pollStatus();
     this._pollTimer = setInterval(() => this.pollStatus(), pollInterval);
@@ -188,6 +216,18 @@ export class XeniaMachineAccessory {
       if (this.state.brewGroupTemp !== brewGroupTemp) {
         this.state.brewGroupTemp = brewGroupTemp;
         this.brewGroupTempSensor.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, brewGroupTemp);
+      }
+
+      const steamPressure = Math.round(overview.SB_SENS_PRESS * 100) / 100;
+      if (this.state.steamPressure !== steamPressure) {
+        this.state.steamPressure = steamPressure;
+        this.platform.log.debug(`[Xenia] Steam boiler pressure: ${steamPressure} bar`);
+      }
+
+      const pumpPressure = Math.round(overview.PU_SENS_PRESS * 100) / 100;
+      if (this.state.pumpPressure !== pumpPressure) {
+        this.state.pumpPressure = pumpPressure;
+        this.platform.log.debug(`[Xenia] Pump pressure: ${pumpPressure} bar`);
       }
     }
 

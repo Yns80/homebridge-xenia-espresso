@@ -33,13 +33,19 @@ export class XeniaApi {
   private request(method: string, path: string, body?: object): Promise<unknown> {
     return new Promise((resolve) => {
       const data = body ? JSON.stringify(body) : undefined;
+      // POST: Xenia requires JSON body with application/x-www-form-urlencoded Content-Type
+      // GET: standard application/json
+      const contentType = method === 'POST'
+        ? 'application/x-www-form-urlencoded'
+        : 'application/json';
+
       const opts: http.RequestOptions = {
         hostname: this.ip,
         port: 80,
         path: '/api/v2' + path,
         method,
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': contentType,
           'Connection': 'close',
           ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}),
         },
