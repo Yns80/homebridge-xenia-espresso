@@ -87,14 +87,17 @@ export class XeniaApi {
   /** Settings: target temperatures, water tank level */
   async getOverviewSingle(): Promise<XeniaOverviewSingle | null> { return this.get<XeniaOverviewSingle>('/overview_single'); }
 
-  /** Machine control: 0=off, 1=on, 2=eco, 3=steam off, 4=steam on, 5=on+steam off */
-  async control(action: number): Promise<boolean> { return this.post('/machine/control/', { action }); }
+  /** Machine control: 0=off, 1=on, 2=eco, 3=steam off, 4=steam on, 5=on+steam off
+   *  Xenia expects action as a string per Pascal API example: {"action":"1"} */
+  async control(action: number): Promise<boolean> { return this.post('/machine/control/', { action: String(action) }); }
 
   /** Toggle steam boiler on/off */
-  async toggleSteamBoiler(on: boolean): Promise<boolean> { return this.post('/toggle_sb', { TOGGLE: on }); }
+  async toggleSteamBoiler(on: boolean): Promise<boolean> { return this.post('/toggle_sb', { TOGGLE: String(on) }); }
 
   /** Set brew group + brew boiler target temperature */
-  async setTemperatures(bgTemp: number, bbTemp: number): Promise<boolean> { return this.post('/inc_dec', { BG_SET_TEMP: bgTemp, BB_SET_TEMP: bbTemp }); }
+  async setTemperatures(bgTemp: number, bbTemp: number): Promise<boolean> {
+    return this.post('/inc_dec', { BG_SET_TEMP: String(bgTemp), BB_SET_TEMP: String(bbTemp) });
+  }
 
   /** Execute a script on the machine */
   async executeScript(scriptId: number): Promise<boolean> { return this.post('/scripts/execute/', { ID: String(scriptId) }); }
