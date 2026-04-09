@@ -7,13 +7,13 @@ import { XeniaAction } from './settings';
  * XeniaMachineAccessory
  *
  * HomeKit services:
- *   - Switch "Koffiemachine"        → machine aan/uit
- *   - Switch "Stoomboiler"          → stoomboiler aan/uit
- *   - Switch "ECO Modus"            → eco modus
- *   - TemperatureSensor "Koffieboiler" → actuele boilertemperatuur
- *   - TemperatureSensor "Brewgroup" → actuele brewgroup temperatuur
- *   - Thermostat "Boiler Instelling" → doeltemperatuur instellen via HomeKit
- *   - LeakSensor "Waterreservoir"   → melding als water op is
+ *   - Switch "Espresso Machine"      → machine power (MA_STATUS)
+ *   - Switch "Steam Boiler"          → steam boiler on/off (SB_STATUS)
+ *   - Switch "ECO Mode"              → eco/standby mode (MA_STATUS=2)
+ *   - TemperatureSensor "Brew Boiler Temperature"  → BB_SENS_TEMP_A
+ *   - TemperatureSensor "Brew Group Temperature"   → BG_SENS_TEMP_A
+ *   - Thermostat "Boiler Target Temperature"       → BB_SET_TEMP
+ *   - LeakSensor "Water Tank"        → PU_SENS_WATER_TANK_LEVEL
  */
 export class XeniaMachineAccessory {
   private mainSwitch: Service;
@@ -26,9 +26,8 @@ export class XeniaMachineAccessory {
   private infoService: Service;
 
   private readonly api: XeniaApi;
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private _pollTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Lokale state cache
   private state = {
     machineOn: false,
     steamOn: false,
@@ -37,8 +36,6 @@ export class XeniaMachineAccessory {
     brewGroupTemp: 0,
     targetTemp: 93,
     waterEmpty: false,
-    lastExtractionMl: '',
-    extractions: 0,
   };
 
   constructor(
@@ -60,95 +57,100 @@ export class XeniaMachineAccessory {
       .setCharacteristic(this.platform.Characteristic.Model, 'Xenia DB / HX')
       .setCharacteristic(this.platform.Characteristic.SerialNumber, ip);
 
-    // ── Switch: Machine aan/uit ───────────────────────────────────────
+    // ── Switch: Machine power (MA_STATUS on/off) ─────────────────────
     this.mainSwitch =
-      this.accessory.getService('Koffiemachine') ||
-      this.accessory.addService(this.platform.Service.Switch, 'Koffiemachine', 'main-switch');
-    this.mainSwitch.setCharacteristic(this.platform.Characteristic.Name, 'Koffiemachine');
+      this.accessory.getService('Espresso Machine') ||
+      this.accessory.addService(this.platform.Service.Switch, 'Espresso Machine', 'main-switch');
+    this.mainSwitch
+      .setCharacteristic(this.platform.Characteristic.Name, 'Espresso Machine')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Espresso Machine');
     this.mainSwitch.getCharacteristic(this.platform.Characteristic.On)
       .onGet(() => this.state.machineOn)
       .onSet(this.setMachineOn.bind(this));
 
-    // ── Switch: Stoomboiler ───────────────────────────────────────────
+    // ── Switch: Steam boiler (SB_STATUS on/off) ──────────────────────
     this.steamSwitch =
-      this.accessory.getService('Stoomboiler') ||
-      this.accessory.addService(this.platform.Service.Switch, 'Stoomboiler', 'steam-switch');
-    this.steamSwitch.setCharacteristic(this.platform.Characteristic.Name, 'Stoomboiler');
+      this.accessory.getService('Steam Boiler') ||
+      this.accessory.addService(this.platform.Service.Switch, 'Steam Boiler', 'steam-switch');
+    this.steamSwitch
+      .setCharacteristic(this.platform.Characteristic.Name, 'Steam Boiler')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Steam Boiler');
     this.steamSwitch.getCharacteristic(this.platform.Characteristic.On)
       .onGet(() => this.state.steamOn)
       .onSet(this.setSteamOn.bind(this));
 
-    // ── Switch: ECO modus ─────────────────────────────────────────────
+    // ── Switch: ECO mode (MA_STATUS standby) ─────────────────────────
     this.ecoSwitch =
-      this.accessory.getService('ECO Modus') ||
-      this.accessory.addService(this.platform.Service.Switch, 'ECO Modus', 'eco-switch');
-    this.ecoSwitch.setCharacteristic(this.platform.Characteristic.Name, 'ECO Modus');
+      this.accessory.getService('ECO Mode') ||
+      this.accessory.addService(this.platform.Service.Switch, 'ECO Mode', 'eco-switch');
+    this.ecoSwitch
+      .setCharacteristic(this.platform.Characteristic.Name, 'ECO Mode')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'ECO Mode');
     this.ecoSwitch.getCharacteristic(this.platform.Characteristic.On)
       .onGet(() => this.state.ecoMode)
       .onSet(this.setEcoMode.bind(this));
 
-    // ── Temperatuursensor: Koffieboiler ───────────────────────────────
+    // ── Temperature Sensor: Brew Boiler (BB_SENS_TEMP_A) ─────────────
     this.brewBoilerTempSensor =
-      this.accessory.getService('Koffieboiler Temp') ||
-      this.accessory.addService(this.platform.Service.TemperatureSensor, 'Koffieboiler Temp', 'brew-boiler-temp');
-    this.brewBoilerTempSensor.setCharacteristic(this.platform.Characteristic.Name, 'Koffieboiler Temp');
+      this.accessory.getService('Brew Boiler Temperature') ||
+      this.accessory.addService(this.platform.Service.TemperatureSensor, 'Brew Boiler Temperature', 'brew-boiler-temp');
+    this.brewBoilerTempSensor
+      .setCharacteristic(this.platform.Characteristic.Name, 'Brew Boiler Temperature')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Brew Boiler Temperature');
     this.brewBoilerTempSensor.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
       .onGet(() => this.state.brewBoilerTemp);
 
-    // ── Temperatuursensor: Brewgroup ──────────────────────────────────
+    // ── Temperature Sensor: Brew Group (BG_SENS_TEMP_A) ──────────────
     this.brewGroupTempSensor =
-      this.accessory.getService('Brewgroup Temp') ||
-      this.accessory.addService(this.platform.Service.TemperatureSensor, 'Brewgroup Temp', 'brew-group-temp');
-    this.brewGroupTempSensor.setCharacteristic(this.platform.Characteristic.Name, 'Brewgroup Temp');
+      this.accessory.getService('Brew Group Temperature') ||
+      this.accessory.addService(this.platform.Service.TemperatureSensor, 'Brew Group Temperature', 'brew-group-temp');
+    this.brewGroupTempSensor
+      .setCharacteristic(this.platform.Characteristic.Name, 'Brew Group Temperature')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Brew Group Temperature');
     this.brewGroupTempSensor.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
       .onGet(() => this.state.brewGroupTemp);
 
-    // ── Thermostat: Boiler doeltemperatuur instellen ──────────────────
+    // ── Thermostat: Boiler target temperature (BB_SET_TEMP) ───────────
     this.thermostat =
-      this.accessory.getService('Boiler Instelling') ||
-      this.accessory.addService(this.platform.Service.Thermostat, 'Boiler Instelling', 'thermostat');
-    this.thermostat.setCharacteristic(this.platform.Characteristic.Name, 'Boiler Instelling');
-
-    // Zet modus vast op "Heat" (verwarmen) — espresso machine warmt altijd op
+      this.accessory.getService('Boiler Target Temperature') ||
+      this.accessory.addService(this.platform.Service.Thermostat, 'Boiler Target Temperature', 'thermostat');
+    this.thermostat
+      .setCharacteristic(this.platform.Characteristic.Name, 'Boiler Target Temperature')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Boiler Target Temperature');
     this.thermostat.getCharacteristic(this.platform.Characteristic.CurrentHeatingCoolingState)
-      .onGet(() => this.state.machineOn ? 1 : 0); // 0=off, 1=heat
-
+      .onGet(() => this.state.machineOn ? 1 : 0);
     this.thermostat.getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState)
-      .setProps({ validValues: [0, 1] }) // alleen off en heat
+      .setProps({ validValues: [0, 1] })
       .onGet(() => this.state.machineOn ? 1 : 0)
-      .onSet(async (value) => {
-        // 0 = uit, 1 = aan
-        await this.setMachineOn(value === 1);
-      });
-
+      .onSet(async (value) => { await this.setMachineOn(value === 1); });
     this.thermostat.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
       .onGet(() => this.state.brewBoilerTemp);
-
     this.thermostat.getCharacteristic(this.platform.Characteristic.TargetTemperature)
       .setProps({ minValue: 70, maxValue: 105, minStep: 0.5 })
       .onGet(() => this.state.targetTemp)
       .onSet(this.setTargetTemperature.bind(this));
-
     this.thermostat.getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits)
-      .onGet(() => 0); // 0 = Celsius
+      .onGet(() => 0);
 
-    // ── Leak Sensor: Waterreservoir ───────────────────────────────────
+    // ── Leak Sensor: Water Tank (PU_SENS_WATER_TANK_LEVEL) ───────────
     this.waterSensor =
-      this.accessory.getService('Waterreservoir') ||
-      this.accessory.addService(this.platform.Service.LeakSensor, 'Waterreservoir', 'water-sensor');
-    this.waterSensor.setCharacteristic(this.platform.Characteristic.Name, 'Waterreservoir');
+      this.accessory.getService('Water Tank') ||
+      this.accessory.addService(this.platform.Service.LeakSensor, 'Water Tank', 'water-sensor');
+    this.waterSensor
+      .setCharacteristic(this.platform.Characteristic.Name, 'Water Tank')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Water Tank');
     this.waterSensor.getCharacteristic(this.platform.Characteristic.LeakDetected)
-      .onGet(() => this.state.waterEmpty ? 1 : 0); // 1 = lek gedetecteerd (= water leeg)
+      .onGet(() => this.state.waterEmpty ? 1 : 0);
 
     // ── Start polling ─────────────────────────────────────────────────
     this.pollStatus();
-    this.pollTimer = setInterval(() => this.pollStatus(), pollInterval);
+    this._pollTimer = setInterval(() => this.pollStatus(), pollInterval);
 
     this.platform.log.info(`Xenia accessory klaar — IP: ${ip}, polling elke ${pollInterval / 1000}s`);
   }
 
   // ──────────────────────────────────────────────────────────────────
-  // STATUS POLLING — haalt overview op voor alle live data
+  // STATUS POLLING
   // ──────────────────────────────────────────────────────────────────
 
   private async pollStatus() {
@@ -187,9 +189,6 @@ export class XeniaMachineAccessory {
         this.state.brewGroupTemp = brewGroupTemp;
         this.brewGroupTempSensor.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, brewGroupTemp);
       }
-
-      this.state.lastExtractionMl = overview.MA_LAST_EXTRACTION_ML;
-      this.state.extractions = overview.MA_EXTRACTIONS;
     }
 
     if (single) {
@@ -203,7 +202,7 @@ export class XeniaMachineAccessory {
           this.platform.log.warn('[Xenia] ⚠️  Waterreservoir is leeg!');
         }
       }
-      if (this.state.targetTemp !== targetTemp && targetTemp > 0) {
+      if (targetTemp > 0 && this.state.targetTemp !== targetTemp) {
         this.state.targetTemp = targetTemp;
         this.thermostat.updateCharacteristic(this.platform.Characteristic.TargetTemperature, targetTemp);
       }
@@ -226,7 +225,7 @@ export class XeniaMachineAccessory {
       }
       this.thermostat.updateCharacteristic(this.platform.Characteristic.CurrentHeatingCoolingState, on ? 1 : 0);
     } else {
-      setTimeout(() => this.mainSwitch.updateCharacteristic(this.platform.Characteristic.On, !on), 500);
+      setInterval(() => this.mainSwitch.updateCharacteristic(this.platform.Characteristic.On, !on), 500);
     }
   }
 
@@ -238,10 +237,10 @@ export class XeniaMachineAccessory {
     const on = value as boolean;
     this.platform.log.info(`Stoomboiler ${on ? 'aanzetten' : 'uitzetten'}...`);
     const success = await this.api.toggleSteamBoiler(on);
-    if (success) {
-      this.state.steamOn = on;
+    if (!success) {
+      setInterval(() => this.steamSwitch.updateCharacteristic(this.platform.Characteristic.On, !on), 500);
     } else {
-      setTimeout(() => this.steamSwitch.updateCharacteristic(this.platform.Characteristic.On, !on), 500);
+      this.state.steamOn = on;
     }
   }
 
@@ -259,7 +258,7 @@ export class XeniaMachineAccessory {
         this.state.machineOn = false;
         this.mainSwitch.updateCharacteristic(this.platform.Characteristic.On, false);
       } else {
-        setTimeout(() => this.ecoSwitch.updateCharacteristic(this.platform.Characteristic.On, false), 500);
+        setInterval(() => this.ecoSwitch.updateCharacteristic(this.platform.Characteristic.On, false), 500);
       }
     } else {
       const success = await this.api.control(XeniaAction.PowerOn);
@@ -268,13 +267,13 @@ export class XeniaMachineAccessory {
         this.state.machineOn = true;
         this.mainSwitch.updateCharacteristic(this.platform.Characteristic.On, true);
       } else {
-        setTimeout(() => this.ecoSwitch.updateCharacteristic(this.platform.Characteristic.On, true), 500);
+        setInterval(() => this.ecoSwitch.updateCharacteristic(this.platform.Characteristic.On, true), 500);
       }
     }
   }
 
   // ──────────────────────────────────────────────────────────────────
-  // DOELTEMPERATUUR INSTELLEN
+  // DOELTEMPERATUUR
   // ──────────────────────────────────────────────────────────────────
 
   private async setTargetTemperature(value: CharacteristicValue) {
