@@ -27,15 +27,11 @@ export interface XeniaOverviewSingle {
   MA_MAC: string;
 }
 
-/**
- * HTTP client for the Xenia ESP32 API v2.
- * Uses Node.js native http module — no external dependencies.
- */
 export class XeniaApi {
   constructor(private readonly ip: string, private readonly log: Logger) {}
 
   private request(method: string, path: string, body?: object): Promise<unknown> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const data = body ? JSON.stringify(body) : undefined;
       const opts: http.RequestOptions = {
         hostname: this.ip,
@@ -44,8 +40,10 @@ export class XeniaApi {
         method,
         headers: {
           'Content-Type': 'application/json',
+          'Connection': 'close',
           ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}),
         },
+        agent: false,
       };
 
       const req = http.request(opts, (res) => {
@@ -56,61 +54,42 @@ export class XeniaApi {
         });
       });
 
-      req.on('error', (e) => reject(e));
-      req.setTimeout(8000, () => {
-        req.abort();
-      });
+      req.on('error', () => resolve({}));
+      req.setTimeout(8000, () => { req.destroy(); resolve({}); });
       if (data) { req.write(data); }
       req.end();
     });
   }
 
   private async get<T>(path: string): Promise<T | null> {
-    try {
-      return await this.request('GET', path) as T;
-    } catch (e) {
-      this.log.warn('[XeniaAPI] GET error ' + path + ': ' + (e as Error).message);
+    const r = await this.request('GET', path) as Record<string, unknown>;
+    if (Object.keys(r).length === 0) {
+      this.log.warn('[XeniaAPI] No data from GET ' + path);
       return null;
     }
+    return r as T;
   }
 
   private async post(path: string, body: object): Promise<boolean> {
-    try {
-      await this.request('POST', path, body);
-      return true;
-    } catch (e) {
-      this.log.warn('[XeniaAPI] POST error ' + path + ': ' + (e as Error).message);
-      return false;
-    }
+    await this.request('POST', path, body);
+    return true;
   }
 
   /** Full overview: temperatures, pressure, status */
-  async getOverview(): Promise<XeniaOverview | null> {
-    return this.get<XeniaOverview>('/overview');
-  }
+  async getOverview(): Promise<XeniaOverview | null> { return this.get<XeniaOverview>('/overview'); }
 
   /** Settings: target temperatures, water tank level */
-  async getOverviewSingle(): Promise<XeniaOverviewSingle | null> {
-    return this.get<XeniaOverviewSingle>('/overview_single');
-  }
+  async getOverviewSingle(): Promise<XeniaOverviewSingle | null> { return this.get<XeniaOverviewSingle>('/overview_single'); }
 
   /** Machine control: 0=off, 1=on, 2=eco, 3=steam off, 4=steam on, 5=on+steam off */
-  async control(action: number): Promise<boolean> {
-    return this.post('/machine/control/', { action });
-  }
+  async control(action: number): Promise<boolean> { return this.post('/machine/control/', { action }); }
 
   /** Toggle steam boiler on/off */
-  async toggleSteamBoiler(on: boolean): Promise<boolean> {
-    return this.post('/toggle_sb', { TOGGLE: on });
-  }
+  async toggleSteamBoiler(on: boolean): Promise<boolean> { return this.post('/toggle_sb', { TOGGLE: on }); }
 
   /** Set brew group + brew boiler target temperature */
-  async setTemperatures(bgTemp: number, bbTemp: number): Promise<boolean> {
-    return this.post('/inc_dec', { BG_SET_TEMP: bgTemp, BB_SET_TEMP: bbTemp });
-  }
+  async setTemperatures(bgTemp: number, bbTemp: number): Promise<boolean> { return this.post('/inc_dec', { BG_SET_TEMP: bgTemp, BB_SET_TEMP: bbTemp }); }
 
   /** Execute a script on the machine */
-  async executeScript(scriptId: number): Promise<boolean> {
-    return this.post('/scripts/execute/', { ID: String(scriptId) });
-  }
+  async executeScript(scriptId: number): Promise<boolean> { return this.post('/scripts/execute/', { ID: String(scriptId) }); }
 }
