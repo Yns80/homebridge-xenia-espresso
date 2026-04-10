@@ -221,14 +221,34 @@ export class XeniaMachineAccessory {
       const steamPressure = Math.round(overview.SB_SENS_PRESS * 100) / 100;
       if (this.state.steamPressure !== steamPressure) {
         this.state.steamPressure = steamPressure;
-        this.platform.log.debug(`[Xenia] Steam boiler pressure: ${steamPressure} bar`);
+        this.platform.log.info(`[Xenia] Steam boiler pressure: ${steamPressure} bar`);
       }
 
       const pumpPressure = Math.round(overview.PU_SENS_PRESS * 100) / 100;
       if (this.state.pumpPressure !== pumpPressure) {
         this.state.pumpPressure = pumpPressure;
-        this.platform.log.debug(`[Xenia] Pump pressure: ${pumpPressure} bar`);
+        this.platform.log.info(`[Xenia] Pump pressure: ${pumpPressure} bar`);
       }
+
+      // Log all stats on every poll for visibility in Homebridge logs
+      this.platform.log.info(
+        `[Xenia] Stats — shots: ${overview.MA_EXTRACTIONS} | ` +
+        `last shot: ${overview.MA_LAST_EXTRACTION_ML} ml | ` +
+        `op. hours: ${overview.MA_OPERATING_HOURS} | ` +
+        `power: ${overview.MA_CUR_PWR} W`,
+      );
+
+      // Expose shot count, last extraction and operating hours in the
+      // Accessory Information tile (visible in Home app under ⓘ details)
+      this.infoService
+        .setCharacteristic(
+          this.platform.Characteristic.FirmwareRevision,
+          `${overview.MA_EXTRACTIONS} shots | ${Math.round(overview.MA_OPERATING_HOURS / 3600)} hrs`,
+        )
+        .setCharacteristic(
+          this.platform.Characteristic.HardwareRevision,
+          `Last: ${overview.MA_LAST_EXTRACTION_ML} ml | Power: ${overview.MA_CUR_PWR} W`,
+        );
     }
 
     if (single) {
