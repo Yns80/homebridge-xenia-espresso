@@ -1,15 +1,15 @@
 import { Service, PlatformAccessory, CharacteristicValue } from 'homebridge';
 import { XeniaPlatform } from './platform';
-import { XeniaApi } from './xeniaApi';
+import { XeniaApi, MachineStatus, SteamBoilerStatus } from './xeniaApi';
 import { XeniaAction } from './settings';
 
 /**
  * XeniaMachineAccessory
  *
  * HomeKit services:
- *   - Switch "Espresso Machine"      → machine power (MA_STATUS)
- *   - Switch "Steam Boiler"          → steam boiler on/off (SB_STATUS)
- *   - Switch "ECO Mode"              → eco/standby mode (MA_STATUS=2)
+ *   - Switch "Espresso Machine"      → MA_STATUS (0=OFF,1=ON,2=ECO,3=BREWING,4=DRAINING)
+ *   - Switch "Steam Boiler"          → SB_STATUS (1=OFF, 2=ON)
+ *   - Switch "ECO Mode"              → MA_STATUS=2
  *   - TemperatureSensor "Brew Boiler Temperature"  → BB_SENS_TEMP_A
  *   - TemperatureSensor "Brew Group Temperature"   → BG_SENS_TEMP_A
  *   - Thermostat "Boiler Target Temperature"       → BB_SET_TEMP
@@ -188,11 +188,23 @@ export class XeniaMachineAccessory {
     ]);
 
     if (overview) {
-      const machineOn = overview.MA_STATUS === 1;
-      const ecoMode = overview.MA_STATUS === 2;
-      const steamOn = overview.SB_STATUS === 1;
+      // MA_STATUS: 0=OFF, 1=ON, 2=ECO, 3=BREWING, 4=DRAINING
+      // Machine counts as "on" while brewing or draining too
+      const machineOn = overview.MA_STATUS === MachineStatus.ON
+        || overview.MA_STATUS === MachineStatus.BREWING
+        || overview.MA_STATUS === MachineStatus.DRAINING;
+      const ecoMode   = overview.MA_STATUS === MachineStatus.ECO;
+      const brewing   = overview.MA_STATUS === MachineStatus.BREWING;
+
+      // SB_STATUS: 1=OFF, 2=ON (not 0/1 — this was a bug)
+      const steamOn = overview.SB_STATUS === SteamBoilerStatus.ON;
+
       const brewBoilerTemp = Math.round(overview.BB_SENS_TEMP_A * 10) / 10;
-      const brewGroupTemp = Math.round(overview.BG_SENS_TEMP_A * 10) / 10;
+      const brewGroupTemp  = Math.round(overview.BG_SENS_TEMP_A * 10) / 10;
+      const steamPressure  = Math.round(overview.SB_SENS_PRESS * 100) / 100;
+      const pumpPressure   = Math.round(overview.PU_SENS_PRESS * 100) / 100;
+      // MA_OPERATING_HOURS is in minutes
+      const opHours = Math.round(overview.MA_OPERATING_HOURS / 60);
 
       if (this.state.machineOn !== machineOn) {
         this.state.machineOn = machineOn;
@@ -217,37 +229,32 @@ export class XeniaMachineAccessory {
         this.state.brewGroupTemp = brewGroupTemp;
         this.brewGroupTempSensor.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, brewGroupTemp);
       }
-
-      const steamPressure = Math.round(overview.SB_SENS_PRESS * 100) / 100;
       if (this.state.steamPressure !== steamPressure) {
         this.state.steamPressure = steamPressure;
-        this.platform.log.info(`[Xenia] Steam boiler pressure: ${steamPressure} bar`);
       }
-
-      const pumpPressure = Math.round(overview.PU_SENS_PRESS * 100) / 100;
       if (this.state.pumpPressure !== pumpPressure) {
         this.state.pumpPressure = pumpPressure;
-        this.platform.log.info(`[Xenia] Pump pressure: ${pumpPressure} bar`);
       }
 
-      // Log all stats on every poll for visibility in Homebridge logs
+      const statusLabel = brewing ? 'BREWING' : overview.MA_STATUS === MachineStatus.DRAINING ? 'DRAINING' : machineOn ? 'ON' : ecoMode ? 'ECO' : 'OFF';
       this.platform.log.info(
-        `[Xenia] Stats — shots: ${overview.MA_EXTRACTIONS} | ` +
-        `last shot: ${overview.MA_LAST_EXTRACTION_ML} ml | ` +
-        `op. hours: ${overview.MA_OPERATING_HOURS} | ` +
-        `power: ${overview.MA_CUR_PWR} W`,
+        `[Xenia] ${statusLabel} | ` +
+        `boiler: ${brewBoilerTemp}°C | group: ${brewGroupTemp}°C | ` +
+        `steam: ${steamPressure} bar | pump: ${pumpPressure} bar | ` +
+        `shots: ${overview.MA_EXTRACTIONS} | last: ${overview.MA_LAST_EXTRACTION_ML} ml | ` +
+        `flow: ${overview.PU_SENS_FLOW_METER_ML} ml | scale: ${overview.SCALE_WEIGHT} g | ` +
+        `power: ${overview.MA_CUR_PWR} W | ${opHours} hrs`,
       );
 
-      // Expose shot count, last extraction and operating hours in the
-      // Accessory Information tile (visible in Home app under ⓘ details)
+      // Accessory Information tile (Home app ⓘ details)
       this.infoService
         .setCharacteristic(
           this.platform.Characteristic.FirmwareRevision,
-          `${overview.MA_EXTRACTIONS} shots | ${Math.round(overview.MA_OPERATING_HOURS / 3600)} hrs`,
+          `${overview.MA_EXTRACTIONS} shots | ${opHours} hrs`,
         )
         .setCharacteristic(
           this.platform.Characteristic.HardwareRevision,
-          `Last: ${overview.MA_LAST_EXTRACTION_ML} ml | Power: ${overview.MA_CUR_PWR} W`,
+          `Last: ${overview.MA_LAST_EXTRACTION_ML} ml | ${overview.MA_CUR_PWR} W`,
         );
     }
 
