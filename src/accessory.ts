@@ -65,7 +65,7 @@ export class XeniaMachineAccessory {
 
     // ── Switch: Machine power (MA_STATUS on/off) ─────────────────────
     this.mainSwitch =
-      this.accessory.getService('Espresso Machine') ||
+      this.accessory.getServiceById(this.platform.Service.Switch, 'main-switch') ||
       this.accessory.addService(this.platform.Service.Switch, 'Espresso Machine', 'main-switch');
     this.mainSwitch
       .setCharacteristic(this.platform.Characteristic.Name, 'Espresso Machine')
@@ -76,7 +76,7 @@ export class XeniaMachineAccessory {
 
     // ── Switch: Steam boiler (SB_STATUS on/off) ──────────────────────
     this.steamSwitch =
-      this.accessory.getService('Steam Boiler') ||
+      this.accessory.getServiceById(this.platform.Service.Switch, 'steam-switch') ||
       this.accessory.addService(this.platform.Service.Switch, 'Steam Boiler', 'steam-switch');
     this.steamSwitch
       .setCharacteristic(this.platform.Characteristic.Name, 'Steam Boiler')
@@ -87,7 +87,7 @@ export class XeniaMachineAccessory {
 
     // ── Switch: ECO mode (MA_STATUS standby) ─────────────────────────
     this.ecoSwitch =
-      this.accessory.getService('ECO Mode') ||
+      this.accessory.getServiceById(this.platform.Service.Switch, 'eco-switch') ||
       this.accessory.addService(this.platform.Service.Switch, 'ECO Mode', 'eco-switch');
     this.ecoSwitch
       .setCharacteristic(this.platform.Characteristic.Name, 'ECO Mode')
@@ -98,7 +98,7 @@ export class XeniaMachineAccessory {
 
     // ── Temperature Sensor: Brew Boiler (BB_SENS_TEMP_A) ─────────────
     this.brewBoilerTempSensor =
-      this.accessory.getService('Brew Boiler Temperature') ||
+      this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'brew-boiler-temp') ||
       this.accessory.addService(this.platform.Service.TemperatureSensor, 'Brew Boiler Temperature', 'brew-boiler-temp');
     this.brewBoilerTempSensor
       .setCharacteristic(this.platform.Characteristic.Name, 'Brew Boiler Temperature')
@@ -108,7 +108,7 @@ export class XeniaMachineAccessory {
 
     // ── Temperature Sensor: Brew Group (BG_SENS_TEMP_A) ──────────────
     this.brewGroupTempSensor =
-      this.accessory.getService('Brew Group Temperature') ||
+      this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'brew-group-temp') ||
       this.accessory.addService(this.platform.Service.TemperatureSensor, 'Brew Group Temperature', 'brew-group-temp');
     this.brewGroupTempSensor
       .setCharacteristic(this.platform.Characteristic.Name, 'Brew Group Temperature')
@@ -118,7 +118,7 @@ export class XeniaMachineAccessory {
 
     // ── Thermostat: Boiler target temperature (BB_SET_TEMP) ───────────
     this.thermostat =
-      this.accessory.getService('Boiler Target Temperature') ||
+      this.accessory.getServiceById(this.platform.Service.Thermostat, 'thermostat') ||
       this.accessory.addService(this.platform.Service.Thermostat, 'Boiler Target Temperature', 'thermostat');
     this.thermostat
       .setCharacteristic(this.platform.Characteristic.Name, 'Boiler Target Temperature')
@@ -140,7 +140,7 @@ export class XeniaMachineAccessory {
 
     // ── Leak Sensor: Water Tank (PU_SENS_WATER_TANK_LEVEL) ───────────
     this.waterSensor =
-      this.accessory.getService('Water Tank') ||
+      this.accessory.getServiceById(this.platform.Service.LeakSensor, 'water-sensor') ||
       this.accessory.addService(this.platform.Service.LeakSensor, 'Water Tank', 'water-sensor');
     this.waterSensor
       .setCharacteristic(this.platform.Characteristic.Name, 'Water Tank')
@@ -152,7 +152,7 @@ export class XeniaMachineAccessory {
     // HomeKit has no native pressure service — we use AirQualitySensor
     // as a numeric display tile. Eve app shows the raw value in bar.
     this.steamPressureSensor =
-      this.accessory.getService('Steam Boiler Pressure') ||
+      this.accessory.getServiceById(this.platform.Service.AirQualitySensor, 'steam-pressure') ||
       this.accessory.addService(this.platform.Service.AirQualitySensor, 'Steam Boiler Pressure', 'steam-pressure');
     this.steamPressureSensor
       .setCharacteristic(this.platform.Characteristic.Name, 'Steam Boiler Pressure')
@@ -162,7 +162,7 @@ export class XeniaMachineAccessory {
 
     // ── Pump Pressure (PU_SENS_PRESS) ────────────────────────────────
     this.pumpPressureSensor =
-      this.accessory.getService('Pump Pressure') ||
+      this.accessory.getServiceById(this.platform.Service.AirQualitySensor, 'pump-pressure') ||
       this.accessory.addService(this.platform.Service.AirQualitySensor, 'Pump Pressure', 'pump-pressure');
     this.pumpPressureSensor
       .setCharacteristic(this.platform.Characteristic.Name, 'Pump Pressure')
