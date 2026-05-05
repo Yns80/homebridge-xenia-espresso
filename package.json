@@ -1,6 +1,6 @@
 {
   "name": "homebridge-xenia-espresso",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Homebridge plugin for Xenia Espresso machines with ESP32 WiFi module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
