@@ -24,7 +24,8 @@ export class XeniaMachineAccessory {
   private brewBoilerTempSensor: Service;
   private brewGroupTempSensor: Service;
   private thermostat: Service;
-  private waterSensor: Service;
+  private waterSensor?: Service;
+  private _waterTankType: 'filter' | 'contact' | 'leak' | 'none' = 'filter';
   private steamPressureSensor: Service;
   private pumpPressureSensor: Service;
   private infoService: Service;
@@ -74,7 +75,7 @@ export class XeniaMachineAccessory {
       .onGet(() => this.state.machineOn)
       .onSet(this.setMachineOn.bind(this));
 
-    // ── Switch: Steam boiler (SB_STATUS on/off) ──────────────────────
+    // ── Switch: Steam boiler (SB_STATUS on/off) ─────────────────────
     this.steamSwitch =
       this.accessory.getServiceById(this.platform.Service.Switch, 'steam-switch') ||
       this.accessory.addService(this.platform.Service.Switch, 'Steam Boiler', 'steam-switch');
@@ -138,15 +139,44 @@ export class XeniaMachineAccessory {
     this.thermostat.getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits)
       .onGet(() => 0);
 
-    // ── Leak Sensor: Water Tank (PU_SENS_WATER_TANK_LEVEL) ───────────
-    this.waterSensor =
-      this.accessory.getServiceById(this.platform.Service.LeakSensor, 'water-sensor') ||
-      this.accessory.addService(this.platform.Service.LeakSensor, 'Water Tank', 'water-sensor');
-    this.waterSensor
-      .setCharacteristic(this.platform.Characteristic.Name, 'Water Tank')
-      .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Water Tank');
-    this.waterSensor.getCharacteristic(this.platform.Characteristic.LeakDetected)
-      .onGet(() => this.state.waterEmpty ? 1 : 0);
+    // ── Water Tank Sensor (configurable type) ────────────────────────
+    // Default to FilterMaintenance to avoid HomeKit's emergency-style
+    // "Leak detected!" notifications when the tank is just low.
+    const waterTankType =
+      (this.platform.config['waterTankSensor'] as 'filter' | 'contact' | 'leak' | 'none') || 'filter';
+    this._waterTankType = waterTankType;
+
+    const allWaterSubtypes = ['water-filter', 'water-contact', 'water-sensor'];
+    const waterServiceMap: Record<'filter' | 'contact' | 'leak', { ServiceCtor: any; subtype: string }> = {
+      filter:  { ServiceCtor: this.platform.Service.FilterMaintenance, subtype: 'water-filter' },
+      contact: { ServiceCtor: this.platform.Service.ContactSensor, subtype: 'water-contact' },
+      leak:    { ServiceCtor: this.platform.Service.LeakSensor, subtype: 'water-sensor' },
+    };
+
+    // Remove any stale water-tank services from the cached accessory that don't match the active config
+    const expectedSubtype = waterTankType === 'none' ? null : waterServiceMap[waterTankType].subtype;
+    for (const service of [...this.accessory.services]) {
+      if (service.subtype && allWaterSubtypes.includes(service.subtype) && service.subtype !== expectedSubtype) {
+        this.platform.log.info(`Removing stale water sensor service: ${service.subtype}`);
+        this.accessory.removeService(service);
+      }
+    }
+
+    if (waterTankType !== 'none') {
+      const { ServiceCtor, subtype } = waterServiceMap[waterTankType];
+      this.waterSensor =
+        this.accessory.getServiceById(ServiceCtor, subtype) ||
+        this.accessory.addService(ServiceCtor, 'Water Tank', subtype);
+      this.waterSensor
+        .setCharacteristic(this.platform.Characteristic.Name, 'Water Tank')
+        .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Water Tank');
+      const watchedChar =
+        waterTankType === 'filter'  ? this.platform.Characteristic.FilterChangeIndication :
+        waterTankType === 'contact' ? this.platform.Characteristic.ContactSensorState :
+                                      this.platform.Characteristic.LeakDetected;
+      this.waterSensor.getCharacteristic(watchedChar)
+        .onGet(() => this.state.waterEmpty ? 1 : 0);
+    }
 
     // ── Steam Boiler Pressure (SB_SENS_PRESS) ────────────────────────
     // HomeKit has no native pressure service — we use AirQualitySensor
@@ -264,7 +294,13 @@ export class XeniaMachineAccessory {
 
       if (this.state.waterEmpty !== waterEmpty) {
         this.state.waterEmpty = waterEmpty;
-        this.waterSensor.updateCharacteristic(this.platform.Characteristic.LeakDetected, waterEmpty ? 1 : 0);
+        if (this.waterSensor && this._waterTankType !== 'none') {
+          const watchedChar =
+            this._waterTankType === 'filter'  ? this.platform.Characteristic.FilterChangeIndication :
+            this._waterTankType === 'contact' ? this.platform.Characteristic.ContactSensorState :
+                                                this.platform.Characteristic.LeakDetected;
+          this.waterSensor.updateCharacteristic(watchedChar, waterEmpty ? 1 : 0);
+        }
         if (waterEmpty) {
           this.platform.log.warn('[Xenia] ⚠️  Waterreservoir is leeg!');
         }
