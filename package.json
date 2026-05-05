@@ -1,17 +1,29 @@
 {
   "name": "homebridge-xenia-espresso",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Homebridge plugin for Xenia Espresso machines with ESP32 WiFi module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "prepublishOnly": "npm run build",
-    "postinstall": "npm run build"
+    "prepublishOnly": "npm run build"
   },
+  "files": [
+    "dist/",
+    "config.schema.json",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yns80/homebridge-xenia-espresso.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Yns80/homebridge-xenia-espresso/issues"
+  },
+  "homepage": "https://github.com/Yns80/homebridge-xenia-espresso#readme",
   "keywords": ["homebridge-plugin", "espresso", "xenia", "coffee", "homekit"],
-  "author": "",
+  "author": "Yunus Kayhan",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=18.0.0",
