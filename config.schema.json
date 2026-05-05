@@ -25,12 +25,25 @@
         "minimum": 5,
         "maximum": 300,
         "description": "Hoe vaak de status van de machine wordt opgehaald."
+      },
+      "waterTankSensor": {
+        "title": "Water Tank Sensor type",
+        "type": "string",
+        "default": "filter",
+        "oneOf": [
+          { "title": "Filter Maintenance (recommended) — calm 'needs attention' alert", "enum": ["filter"] },
+          { "title": "Contact Sensor — 'open/closed' alert", "enum": ["contact"] },
+          { "title": "Leak Sensor — emergency-style 'Leak detected!' (legacy)", "enum": ["leak"] },
+          { "title": "None — only log, no HomeKit alert", "enum": ["none"] }
+        ],
+        "description": "How a low water tank should surface in HomeKit. The default 'Filter Maintenance' avoids the alarming 'Leak detected!' notification that LeakSensor produces."
       }
     }
   },
   "layout": [
     "name",
     "ip",
-    "pollInterval"
+    "pollInterval",
+    "waterTankSensor"
   ]
 }
