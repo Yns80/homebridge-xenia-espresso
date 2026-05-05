@@ -14,8 +14,8 @@ import { XeniaAction } from './settings';
  *   - TemperatureSensor "Brew Group Temperature"   → BG_SENS_TEMP_A
  *   - Thermostat "Boiler Target Temperature"       → BB_SET_TEMP
  *   - LeakSensor "Water Tank"        → PU_SENS_WATER_TANK_LEVEL
- *   - AirQualitySensor "Steam Boiler Pressure" → SB_SENS_PRESS (bar)
- *   - AirQualitySensor "Pump Pressure"         → PU_SENS_PRESS (bar)
+ *   - TemperatureSensor "Steam Boiler Pressure" → SB_SENS_PRESS (bar, displayed as °C in HomeKit)
+ *   - TemperatureSensor "Pump Pressure"         → PU_SENS_PRESS (bar, displayed as °C in HomeKit)
  */
 export class XeniaMachineAccessory {
   private mainSwitch: Service;
@@ -179,26 +179,43 @@ export class XeniaMachineAccessory {
     }
 
     // ── Steam Boiler Pressure (SB_SENS_PRESS) ────────────────────────
-    // HomeKit has no native pressure service — we use AirQualitySensor
-    // as a numeric display tile. Eve app shows the raw value in bar.
+    // HomeKit has no native pressure service. We use TemperatureSensor so
+    // the Home app tile shows the actual numeric value (the °C unit label
+    // is wrong but the number is right; users typically rename the tile).
+    // Cleanup any stale AirQualitySensor from earlier plugin versions.
+    for (const service of [...this.accessory.services]) {
+      if (service.subtype === 'steam-pressure' && service.UUID !== this.platform.Service.TemperatureSensor.UUID) {
+        this.platform.log.info(`Removing stale steam pressure service (was ${service.UUID})`);
+        this.accessory.removeService(service);
+      }
+    }
     this.steamPressureSensor =
-      this.accessory.getServiceById(this.platform.Service.AirQualitySensor, 'steam-pressure') ||
-      this.accessory.addService(this.platform.Service.AirQualitySensor, 'Steam Boiler Pressure', 'steam-pressure');
+      this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'steam-pressure') ||
+      this.accessory.addService(this.platform.Service.TemperatureSensor, 'Steam Boiler Pressure', 'steam-pressure');
     this.steamPressureSensor
       .setCharacteristic(this.platform.Characteristic.Name, 'Steam Boiler Pressure')
       .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Steam Boiler Pressure');
-    this.steamPressureSensor.getCharacteristic(this.platform.Characteristic.AirQuality)
-      .onGet(() => 1); // 1 = EXCELLENT, keeps the tile green
+    this.steamPressureSensor.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
+      .setProps({ minValue: -50, maxValue: 50, minStep: 0.01 })
+      .onGet(() => this.state.steamPressure);
 
     // ── Pump Pressure (PU_SENS_PRESS) ────────────────────────────────
+    // Same approach as steam pressure: TemperatureSensor for numeric display.
+    for (const service of [...this.accessory.services]) {
+      if (service.subtype === 'pump-pressure' && service.UUID !== this.platform.Service.TemperatureSensor.UUID) {
+        this.platform.log.info(`Removing stale pump pressure service (was ${service.UUID})`);
+        this.accessory.removeService(service);
+      }
+    }
     this.pumpPressureSensor =
-      this.accessory.getServiceById(this.platform.Service.AirQualitySensor, 'pump-pressure') ||
-      this.accessory.addService(this.platform.Service.AirQualitySensor, 'Pump Pressure', 'pump-pressure');
+      this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'pump-pressure') ||
+      this.accessory.addService(this.platform.Service.TemperatureSensor, 'Pump Pressure', 'pump-pressure');
     this.pumpPressureSensor
       .setCharacteristic(this.platform.Characteristic.Name, 'Pump Pressure')
       .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Pump Pressure');
-    this.pumpPressureSensor.getCharacteristic(this.platform.Characteristic.AirQuality)
-      .onGet(() => 1);
+    this.pumpPressureSensor.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
+      .setProps({ minValue: -50, maxValue: 50, minStep: 0.01 })
+      .onGet(() => this.state.pumpPressure);
 
     // ── Start polling ─────────────────────────────────────────────────
     this.pollStatus();
@@ -261,9 +278,11 @@ export class XeniaMachineAccessory {
       }
       if (this.state.steamPressure !== steamPressure) {
         this.state.steamPressure = steamPressure;
+        this.steamPressureSensor.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, steamPressure);
       }
       if (this.state.pumpPressure !== pumpPressure) {
         this.state.pumpPressure = pumpPressure;
+        this.pumpPressureSensor.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, pumpPressure);
       }
 
       const statusLabel = brewing ? 'BREWING' : overview.MA_STATUS === MachineStatus.DRAINING ? 'DRAINING' : machineOn ? 'ON' : ecoMode ? 'ECO' : 'OFF';
