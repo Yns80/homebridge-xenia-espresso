@@ -37,6 +37,12 @@
           { "title": "None — only log, no HomeKit alert", "enum": ["none"] }
         ],
         "description": "How a low water tank should surface in HomeKit. The default 'Filter Maintenance' avoids the alarming 'Leak detected!' notification that LeakSensor produces."
+      },
+      "exposeScripts": {
+        "title": "Expose machine scripts as buttons",
+        "type": "boolean",
+        "default": true,
+        "description": "Create a momentary switch ('button') in HomeKit for each script stored on the machine (pressure profiles, pre-infusion, ...). Pressing it runs the script. Create the scripts on the machine first; the plugin only executes them and logs the available script ids at startup."
       }
     }
   },
@@ -44,6 +50,7 @@
     "name",
     "ip",
     "pollInterval",
-    "waterTankSensor"
+    "waterTankSensor",
+    "exposeScripts"
   ]
 }

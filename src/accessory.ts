@@ -16,6 +16,8 @@ import { XeniaAction } from './settings';
  *   - LeakSensor "Water Tank"        → PU_SENS_WATER_TANK_LEVEL
  *   - TemperatureSensor "Steam Boiler Pressure" → SB_SENS_PRESS (bar, displayed as °C in HomeKit)
  *   - TemperatureSensor "Pump Pressure"         → PU_SENS_PRESS (bar, displayed as °C in HomeKit)
+ *   - Switch (momentary) per machine script     → /scripts/list + /scripts/execute/
+ *       (pressure profiles, pre-infusion, ...; flip on = run, auto-resets to off)
  */
 export class XeniaMachineAccessory {
   private mainSwitch: Service;
@@ -217,11 +219,110 @@ export class XeniaMachineAccessory {
       .setProps({ minValue: -50, maxValue: 50, minStep: 0.01 })
       .onGet(() => this.state.pumpPressure);
 
+    // ── Script buttons (one momentary switch per machine script) ──────
+    this.setupScriptButtons();
+
     // ── Start polling ─────────────────────────────────────────────────
     this.pollStatus();
     this._pollTimer = setInterval(() => this.pollStatus(), pollInterval);
 
     this.platform.log.info(`Xenia accessory klaar — IP: ${ip}, polling elke ${pollInterval / 1000}s`);
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // SCRIPT BUTTONS
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Creates a momentary Switch ("button") for every script stored on the
+   * machine (pressure profiles, pre-infusion, ...), plus a single generic
+   * "Stop Script" button that aborts whichever script is running. The plugin
+   * cannot create scripts — you author those on the machine; these buttons
+   * only run / stop them.
+   */
+  private async setupScriptButtons() {
+    const exposeScripts = this.platform.config['exposeScripts'] !== false; // default: on
+    const stopSubtype = 'script-stop';
+    const isScriptSubtype = (s?: string): s is string => !!s && s.startsWith('script-');
+
+    // Generic stop button (independent of which scripts exist).
+    if (exposeScripts) {
+      const stopName = 'Stop Script';
+      const stopService =
+        this.accessory.getServiceById(this.platform.Service.Switch, stopSubtype) ||
+        this.accessory.addService(this.platform.Service.Switch, stopName, stopSubtype);
+      stopService
+        .setCharacteristic(this.platform.Characteristic.Name, stopName)
+        .setCharacteristic(this.platform.Characteristic.ConfiguredName, stopName);
+      stopService.getCharacteristic(this.platform.Characteristic.On)
+        .onGet(() => false)
+        .onSet(async (value) => {
+          if (!value) { return; }
+          this.platform.log.info('[Xenia] Stopping running script...');
+          await this.api.stopScript();
+          setTimeout(() => stopService.updateCharacteristic(this.platform.Characteristic.On, false), 1000);
+        });
+    }
+
+    let scripts: Record<number, string> | null = {};
+    if (exposeScripts) {
+      scripts = await this.api.getScripts();
+      if (scripts === null) {
+        // Machine unreachable at startup — keep the cached script buttons and
+        // just re-wire their handlers (handlers don't survive a restart).
+        this.platform.log.warn('[Xenia] Script list unavailable — script buttons not refreshed');
+        for (const service of this.accessory.services) {
+          if (isScriptSubtype(service.subtype) && service.subtype !== stopSubtype) {
+            this.wireScriptButton(service, Number(service.subtype.slice('script-'.length)));
+          }
+        }
+        return;
+      }
+    }
+
+    const wanted = new Set<string>();
+    if (exposeScripts) { wanted.add(stopSubtype); }
+    for (const [idStr, rawName] of Object.entries(scripts)) {
+      const id = Number(idStr);
+      if (!Number.isFinite(id)) { continue; }
+      const subtype = `script-${id}`;
+      wanted.add(subtype);
+      const name = String(rawName).trim() || `Script ${id}`;
+      const service =
+        this.accessory.getServiceById(this.platform.Service.Switch, subtype) ||
+        this.accessory.addService(this.platform.Service.Switch, name, subtype);
+      service
+        .setCharacteristic(this.platform.Characteristic.Name, name)
+        .setCharacteristic(this.platform.Characteristic.ConfiguredName, name);
+      this.wireScriptButton(service, id);
+      this.platform.log.info(`[Xenia] Script button available: "${name}" (id ${id})`);
+    }
+
+    // Remove script buttons that no longer exist on the machine (or all of
+    // them, including the stop button, when the feature is disabled).
+    for (const service of [...this.accessory.services]) {
+      if (isScriptSubtype(service.subtype) && !wanted.has(service.subtype)) {
+        this.platform.log.info(`[Xenia] Removing obsolete script button: ${service.subtype}`);
+        this.accessory.removeService(service);
+      }
+    }
+  }
+
+  private wireScriptButton(service: Service, scriptId: number) {
+    service.getCharacteristic(this.platform.Characteristic.On)
+      .onGet(() => false)
+      .onSet(async (value) => {
+        if (!value) { return; }
+        this.platform.log.info(`[Xenia] Running script ${scriptId}...`);
+        const ok = await this.api.executeScript(scriptId);
+        if (ok) {
+          this.platform.log.info(`[Xenia] Script ${scriptId} started`);
+        } else {
+          this.platform.log.warn(`[Xenia] Could not start script ${scriptId}`);
+        }
+        // Momentary "button": flip back off shortly after.
+        setTimeout(() => service.updateCharacteristic(this.platform.Characteristic.On, false), 1000);
+      });
   }
 
   // ──────────────────────────────────────────────────────────────────

@@ -94,6 +94,8 @@ class XeniaApi {
     }
     /** Execute a script on the machine */
     async executeScript(scriptId) { return this.post('/scripts/execute/', { ID: String(scriptId) }); }
+    /** Stop whichever script is currently running (GET, no parameters) */
+    async stopScript() { await this.request('GET', '/scripts/stop'); return true; }
 }
 exports.XeniaApi = XeniaApi;
 //# sourceMappingURL=xeniaApi.js.map

@@ -13,8 +13,10 @@ const xeniaApi_1 = require("./xeniaApi");
  *   - TemperatureSensor "Brew Group Temperature"   → BG_SENS_TEMP_A
  *   - Thermostat "Boiler Target Temperature"       → BB_SET_TEMP
  *   - LeakSensor "Water Tank"        → PU_SENS_WATER_TANK_LEVEL
- *   - AirQualitySensor "Steam Boiler Pressure" → SB_SENS_PRESS (bar)
- *   - AirQualitySensor "Pump Pressure"         → PU_SENS_PRESS (bar)
+ *   - TemperatureSensor "Steam Boiler Pressure" → SB_SENS_PRESS (bar, displayed as °C in HomeKit)
+ *   - TemperatureSensor "Pump Pressure"         → PU_SENS_PRESS (bar, displayed as °C in HomeKit)
+ *   - Switch (momentary) per machine script     → /scripts/list + /scripts/execute/
+ *       (pressure profiles, pre-infusion, ...; flip on = run, auto-resets to off)
  */
 class XeniaMachineAccessory {
     platform;
@@ -26,6 +28,7 @@ class XeniaMachineAccessory {
     brewGroupTempSensor;
     thermostat;
     waterSensor;
+    _waterTankType = 'filter';
     steamPressureSensor;
     pumpPressureSensor;
     infoService;
@@ -58,7 +61,7 @@ class XeniaMachineAccessory {
             .setCharacteristic(this.platform.Characteristic.SerialNumber, ip);
         // ── Switch: Machine power (MA_STATUS on/off) ─────────────────────
         this.mainSwitch =
-            this.accessory.getService('Espresso Machine') ||
+            this.accessory.getServiceById(this.platform.Service.Switch, 'main-switch') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Espresso Machine', 'main-switch');
         this.mainSwitch
             .setCharacteristic(this.platform.Characteristic.Name, 'Espresso Machine')
@@ -66,9 +69,9 @@ class XeniaMachineAccessory {
         this.mainSwitch.getCharacteristic(this.platform.Characteristic.On)
             .onGet(() => this.state.machineOn)
             .onSet(this.setMachineOn.bind(this));
-        // ── Switch: Steam boiler (SB_STATUS on/off) ──────────────────────
+        // ── Switch: Steam boiler (SB_STATUS on/off) ─────────────────────
         this.steamSwitch =
-            this.accessory.getService('Steam Boiler') ||
+            this.accessory.getServiceById(this.platform.Service.Switch, 'steam-switch') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Steam Boiler', 'steam-switch');
         this.steamSwitch
             .setCharacteristic(this.platform.Characteristic.Name, 'Steam Boiler')
@@ -78,7 +81,7 @@ class XeniaMachineAccessory {
             .onSet(this.setSteamOn.bind(this));
         // ── Switch: ECO mode (MA_STATUS standby) ─────────────────────────
         this.ecoSwitch =
-            this.accessory.getService('ECO Mode') ||
+            this.accessory.getServiceById(this.platform.Service.Switch, 'eco-switch') ||
                 this.accessory.addService(this.platform.Service.Switch, 'ECO Mode', 'eco-switch');
         this.ecoSwitch
             .setCharacteristic(this.platform.Characteristic.Name, 'ECO Mode')
@@ -88,7 +91,7 @@ class XeniaMachineAccessory {
             .onSet(this.setEcoMode.bind(this));
         // ── Temperature Sensor: Brew Boiler (BB_SENS_TEMP_A) ─────────────
         this.brewBoilerTempSensor =
-            this.accessory.getService('Brew Boiler Temperature') ||
+            this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'brew-boiler-temp') ||
                 this.accessory.addService(this.platform.Service.TemperatureSensor, 'Brew Boiler Temperature', 'brew-boiler-temp');
         this.brewBoilerTempSensor
             .setCharacteristic(this.platform.Characteristic.Name, 'Brew Boiler Temperature')
@@ -97,7 +100,7 @@ class XeniaMachineAccessory {
             .onGet(() => this.state.brewBoilerTemp);
         // ── Temperature Sensor: Brew Group (BG_SENS_TEMP_A) ──────────────
         this.brewGroupTempSensor =
-            this.accessory.getService('Brew Group Temperature') ||
+            this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'brew-group-temp') ||
                 this.accessory.addService(this.platform.Service.TemperatureSensor, 'Brew Group Temperature', 'brew-group-temp');
         this.brewGroupTempSensor
             .setCharacteristic(this.platform.Characteristic.Name, 'Brew Group Temperature')
@@ -106,7 +109,7 @@ class XeniaMachineAccessory {
             .onGet(() => this.state.brewGroupTemp);
         // ── Thermostat: Boiler target temperature (BB_SET_TEMP) ───────────
         this.thermostat =
-            this.accessory.getService('Boiler Target Temperature') ||
+            this.accessory.getServiceById(this.platform.Service.Thermostat, 'thermostat') ||
                 this.accessory.addService(this.platform.Service.Thermostat, 'Boiler Target Temperature', 'thermostat');
         this.thermostat
             .setCharacteristic(this.platform.Characteristic.Name, 'Boiler Target Temperature')
@@ -125,39 +128,178 @@ class XeniaMachineAccessory {
             .onSet(this.setTargetTemperature.bind(this));
         this.thermostat.getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits)
             .onGet(() => 0);
-        // ── Leak Sensor: Water Tank (PU_SENS_WATER_TANK_LEVEL) ───────────
-        this.waterSensor =
-            this.accessory.getService('Water Tank') ||
-                this.accessory.addService(this.platform.Service.LeakSensor, 'Water Tank', 'water-sensor');
-        this.waterSensor
-            .setCharacteristic(this.platform.Characteristic.Name, 'Water Tank')
-            .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Water Tank');
-        this.waterSensor.getCharacteristic(this.platform.Characteristic.LeakDetected)
-            .onGet(() => this.state.waterEmpty ? 1 : 0);
+        // ── Water Tank Sensor (configurable type) ────────────────────────
+        // Default to FilterMaintenance to avoid HomeKit's emergency-style
+        // "Leak detected!" notifications when the tank is just low.
+        const waterTankType = this.platform.config['waterTankSensor'] || 'filter';
+        this._waterTankType = waterTankType;
+        const allWaterSubtypes = ['water-filter', 'water-contact', 'water-sensor'];
+        const waterServiceMap = {
+            filter: { ServiceCtor: this.platform.Service.FilterMaintenance, subtype: 'water-filter' },
+            contact: { ServiceCtor: this.platform.Service.ContactSensor, subtype: 'water-contact' },
+            leak: { ServiceCtor: this.platform.Service.LeakSensor, subtype: 'water-sensor' },
+        };
+        // Remove any stale water-tank services from the cached accessory that don't match the active config
+        const expectedSubtype = waterTankType === 'none' ? null : waterServiceMap[waterTankType].subtype;
+        for (const service of [...this.accessory.services]) {
+            if (service.subtype && allWaterSubtypes.includes(service.subtype) && service.subtype !== expectedSubtype) {
+                this.platform.log.info(`Removing stale water sensor service: ${service.subtype}`);
+                this.accessory.removeService(service);
+            }
+        }
+        if (waterTankType !== 'none') {
+            const { ServiceCtor, subtype } = waterServiceMap[waterTankType];
+            this.waterSensor =
+                this.accessory.getServiceById(ServiceCtor, subtype) ||
+                    this.accessory.addService(ServiceCtor, 'Water Tank', subtype);
+            this.waterSensor
+                .setCharacteristic(this.platform.Characteristic.Name, 'Water Tank')
+                .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Water Tank');
+            const watchedChar = waterTankType === 'filter' ? this.platform.Characteristic.FilterChangeIndication :
+                waterTankType === 'contact' ? this.platform.Characteristic.ContactSensorState :
+                    this.platform.Characteristic.LeakDetected;
+            this.waterSensor.getCharacteristic(watchedChar)
+                .onGet(() => this.state.waterEmpty ? 1 : 0);
+        }
         // ── Steam Boiler Pressure (SB_SENS_PRESS) ────────────────────────
-        // HomeKit has no native pressure service — we use AirQualitySensor
-        // as a numeric display tile. Eve app shows the raw value in bar.
+        // HomeKit has no native pressure service. We use TemperatureSensor so
+        // the Home app tile shows the actual numeric value (the °C unit label
+        // is wrong but the number is right; users typically rename the tile).
+        // Cleanup any stale AirQualitySensor from earlier plugin versions.
+        for (const service of [...this.accessory.services]) {
+            if (service.subtype === 'steam-pressure' && service.UUID !== this.platform.Service.TemperatureSensor.UUID) {
+                this.platform.log.info(`Removing stale steam pressure service (was ${service.UUID})`);
+                this.accessory.removeService(service);
+            }
+        }
         this.steamPressureSensor =
-            this.accessory.getService('Steam Boiler Pressure') ||
-                this.accessory.addService(this.platform.Service.AirQualitySensor, 'Steam Boiler Pressure', 'steam-pressure');
+            this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'steam-pressure') ||
+                this.accessory.addService(this.platform.Service.TemperatureSensor, 'Steam Boiler Pressure', 'steam-pressure');
         this.steamPressureSensor
             .setCharacteristic(this.platform.Characteristic.Name, 'Steam Boiler Pressure')
             .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Steam Boiler Pressure');
-        this.steamPressureSensor.getCharacteristic(this.platform.Characteristic.AirQuality)
-            .onGet(() => 1); // 1 = EXCELLENT, keeps the tile green
+        this.steamPressureSensor.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
+            .setProps({ minValue: -50, maxValue: 50, minStep: 0.01 })
+            .onGet(() => this.state.steamPressure);
         // ── Pump Pressure (PU_SENS_PRESS) ────────────────────────────────
+        // Same approach as steam pressure: TemperatureSensor for numeric display.
+        for (const service of [...this.accessory.services]) {
+            if (service.subtype === 'pump-pressure' && service.UUID !== this.platform.Service.TemperatureSensor.UUID) {
+                this.platform.log.info(`Removing stale pump pressure service (was ${service.UUID})`);
+                this.accessory.removeService(service);
+            }
+        }
         this.pumpPressureSensor =
-            this.accessory.getService('Pump Pressure') ||
-                this.accessory.addService(this.platform.Service.AirQualitySensor, 'Pump Pressure', 'pump-pressure');
+            this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'pump-pressure') ||
+                this.accessory.addService(this.platform.Service.TemperatureSensor, 'Pump Pressure', 'pump-pressure');
         this.pumpPressureSensor
             .setCharacteristic(this.platform.Characteristic.Name, 'Pump Pressure')
             .setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Pump Pressure');
-        this.pumpPressureSensor.getCharacteristic(this.platform.Characteristic.AirQuality)
-            .onGet(() => 1);
+        this.pumpPressureSensor.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
+            .setProps({ minValue: -50, maxValue: 50, minStep: 0.01 })
+            .onGet(() => this.state.pumpPressure);
+        // ── Script buttons (one momentary switch per machine script) ──────
+        this.setupScriptButtons();
         // ── Start polling ─────────────────────────────────────────────────
         this.pollStatus();
         this._pollTimer = setInterval(() => this.pollStatus(), pollInterval);
         this.platform.log.info(`Xenia accessory klaar — IP: ${ip}, polling elke ${pollInterval / 1000}s`);
+    }
+    // ──────────────────────────────────────────────────────────────────
+    // SCRIPT BUTTONS
+    // ──────────────────────────────────────────────────────────────────
+    /**
+     * Creates a momentary Switch ("button") for every script stored on the
+     * machine (pressure profiles, pre-infusion, ...), plus a single generic
+     * "Stop Script" button that aborts whichever script is running. The plugin
+     * cannot create scripts — you author those on the machine; these buttons
+     * only run / stop them.
+     */
+    async setupScriptButtons() {
+        const exposeScripts = this.platform.config['exposeScripts'] !== false; // default: on
+        const stopSubtype = 'script-stop';
+        const isScriptSubtype = (s) => !!s && s.startsWith('script-');
+        // Generic stop button (independent of which scripts exist).
+        if (exposeScripts) {
+            const stopName = 'Stop Script';
+            const stopService = this.accessory.getServiceById(this.platform.Service.Switch, stopSubtype) ||
+                this.accessory.addService(this.platform.Service.Switch, stopName, stopSubtype);
+            stopService
+                .setCharacteristic(this.platform.Characteristic.Name, stopName)
+                .setCharacteristic(this.platform.Characteristic.ConfiguredName, stopName);
+            stopService.getCharacteristic(this.platform.Characteristic.On)
+                .onGet(() => false)
+                .onSet(async (value) => {
+                if (!value) {
+                    return;
+                }
+                this.platform.log.info('[Xenia] Stopping running script...');
+                await this.api.stopScript();
+                setTimeout(() => stopService.updateCharacteristic(this.platform.Characteristic.On, false), 1000);
+            });
+        }
+        let scripts = {};
+        if (exposeScripts) {
+            scripts = await this.api.getScripts();
+            if (scripts === null) {
+                // Machine unreachable at startup — keep the cached script buttons and
+                // just re-wire their handlers (handlers don't survive a restart).
+                this.platform.log.warn('[Xenia] Script list unavailable — script buttons not refreshed');
+                for (const service of this.accessory.services) {
+                    if (isScriptSubtype(service.subtype) && service.subtype !== stopSubtype) {
+                        this.wireScriptButton(service, Number(service.subtype.slice('script-'.length)));
+                    }
+                }
+                return;
+            }
+        }
+        const wanted = new Set();
+        if (exposeScripts) {
+            wanted.add(stopSubtype);
+        }
+        for (const [idStr, rawName] of Object.entries(scripts)) {
+            const id = Number(idStr);
+            if (!Number.isFinite(id)) {
+                continue;
+            }
+            const subtype = `script-${id}`;
+            wanted.add(subtype);
+            const name = String(rawName).trim() || `Script ${id}`;
+            const service = this.accessory.getServiceById(this.platform.Service.Switch, subtype) ||
+                this.accessory.addService(this.platform.Service.Switch, name, subtype);
+            service
+                .setCharacteristic(this.platform.Characteristic.Name, name)
+                .setCharacteristic(this.platform.Characteristic.ConfiguredName, name);
+            this.wireScriptButton(service, id);
+            this.platform.log.info(`[Xenia] Script button available: "${name}" (id ${id})`);
+        }
+        // Remove script buttons that no longer exist on the machine (or all of
+        // them, including the stop button, when the feature is disabled).
+        for (const service of [...this.accessory.services]) {
+            if (isScriptSubtype(service.subtype) && !wanted.has(service.subtype)) {
+                this.platform.log.info(`[Xenia] Removing obsolete script button: ${service.subtype}`);
+                this.accessory.removeService(service);
+            }
+        }
+    }
+    wireScriptButton(service, scriptId) {
+        service.getCharacteristic(this.platform.Characteristic.On)
+            .onGet(() => false)
+            .onSet(async (value) => {
+            if (!value) {
+                return;
+            }
+            this.platform.log.info(`[Xenia] Running script ${scriptId}...`);
+            const ok = await this.api.executeScript(scriptId);
+            if (ok) {
+                this.platform.log.info(`[Xenia] Script ${scriptId} started`);
+            }
+            else {
+                this.platform.log.warn(`[Xenia] Could not start script ${scriptId}`);
+            }
+            // Momentary "button": flip back off shortly after.
+            setTimeout(() => service.updateCharacteristic(this.platform.Characteristic.On, false), 1000);
+        });
     }
     // ──────────────────────────────────────────────────────────────────
     // STATUS POLLING
@@ -208,9 +350,11 @@ class XeniaMachineAccessory {
             }
             if (this.state.steamPressure !== steamPressure) {
                 this.state.steamPressure = steamPressure;
+                this.steamPressureSensor.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, steamPressure);
             }
             if (this.state.pumpPressure !== pumpPressure) {
                 this.state.pumpPressure = pumpPressure;
+                this.pumpPressureSensor.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, pumpPressure);
             }
             const statusLabel = brewing ? 'BREWING' : overview.MA_STATUS === xeniaApi_1.MachineStatus.DRAINING ? 'DRAINING' : machineOn ? 'ON' : ecoMode ? 'ECO' : 'OFF';
             this.platform.log.info(`[Xenia] ${statusLabel} | ` +
@@ -229,7 +373,12 @@ class XeniaMachineAccessory {
             const targetTemp = single.BB_SET_TEMP;
             if (this.state.waterEmpty !== waterEmpty) {
                 this.state.waterEmpty = waterEmpty;
-                this.waterSensor.updateCharacteristic(this.platform.Characteristic.LeakDetected, waterEmpty ? 1 : 0);
+                if (this.waterSensor && this._waterTankType !== 'none') {
+                    const watchedChar = this._waterTankType === 'filter' ? this.platform.Characteristic.FilterChangeIndication :
+                        this._waterTankType === 'contact' ? this.platform.Characteristic.ContactSensorState :
+                            this.platform.Characteristic.LeakDetected;
+                    this.waterSensor.updateCharacteristic(watchedChar, waterEmpty ? 1 : 0);
+                }
                 if (waterEmpty) {
                     this.platform.log.warn('[Xenia] ⚠️  Waterreservoir is leeg!');
                 }

@@ -2,33 +2,36 @@
 
 [![npm version](https://badge.fury.io/js/homebridge-xenia-espresso.svg)](https://badge.fury.io/js/homebridge-xenia-espresso)
 
-Homebridge plugin voor de **Xenia espressomachine** (DB / HX) met ESP32 WiFi module. Bestuur je machine rechtstreeks vanuit de Apple Home app of via Siri.
+Homebridge plugin for the **Xenia espresso machine** (DB / HX) with ESP32 WiFi module. Control your machine straight from the Apple Home app or via Siri.
 
-## Functies
+## Features
 
-- ☕ Machine aan/uit schakelen
-- 💨 Stoomboiler apart aan/uit
-- 🌿 ECO modus activeren
-- 🔄 Automatische status polling (geen cloud, volledig lokaal)
+- ☕ Turn the machine on/off
+- 💨 Steam boiler on/off separately
+- 🌿 Activate ECO mode
+- 🌡️ Brew boiler / brew group temperatures, target-temperature thermostat
+- 💧 Water-tank low warning, steam-boiler & pump pressure tiles
+- 📜 Run machine scripts from a button (pressure profiles, pre-infusion, …) — plus a generic "Stop Script" button
+- 🔄 Automatic status polling (no cloud — fully local)
 
-## Vereisten
+## Requirements
 
-- Homebridge v2.0 of hoger
-- Node.js v18 of hoger
-- Xenia espressomachine met ESP32 WiFi module (firmware met API v2)
-- Machine en Homebridge op hetzelfde lokale netwerk
+- Homebridge v2.0 or newer
+- Node.js v18 or newer
+- Xenia espresso machine with ESP32 WiFi module (firmware with API v2)
+- Machine and Homebridge on the same local network
 
-## Installatie
+## Installation
 
 ```bash
 npm install -g homebridge-xenia-espresso
 ```
 
-Of via de Homebridge UI: zoek op `homebridge-xenia-espresso`.
+Or via the Homebridge UI: search for `homebridge-xenia-espresso`.
 
-## Configuratie
+## Configuration
 
-Voeg het volgende toe aan je Homebridge `config.json`:
+Add the following to your Homebridge `config.json`:
 
 ```json
 {
@@ -43,42 +46,61 @@ Voeg het volgende toe aan je Homebridge `config.json`:
 }
 ```
 
-### Opties
+### Options
 
-| Optie | Type | Standaard | Beschrijving |
-|-------|------|-----------|--------------|
-| `ip` | string | — | **Verplicht.** IP-adres van de machine op je netwerk |
-| `pollInterval` | number | `30` | Polling interval in seconden (5–300) |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `ip` | string | — | **Required.** Local IP address of the machine on your network |
+| `pollInterval` | number | `30` | Status polling interval in seconds (5–300) |
+| `waterTankSensor` | string | `filter` | How a low water tank shows up in HomeKit: `filter` / `contact` / `leak` / `none` |
+| `exposeScripts` | boolean | `true` | Create a button in HomeKit for every script stored on the machine. Pressing it runs the script. Create the scripts on the machine first |
 
-## IP-adres vinden
+### Scripts as buttons
 
-Kijk in de display van de machine of in je router/DHCP lijst. Stel bij voorkeur een vast IP-adres in via DHCP reservering.
+The Xenia supports **scripts** that can do things like a full pressure profile
+or a pre-infusion. Create the script on the machine first (via the
+[script editor](https://www.xenia-espresso.de) / the display). The plugin then
+automatically creates a momentary switch ("button") in the Home app for each
+script — press it and the machine runs the script, then the button flips back
+off. It also adds a single generic **"Stop Script"** button that aborts
+whichever script is currently running. On startup the plugin logs the available
+scripts (id → name). Set `exposeScripts` to `false` if you don't want script
+buttons.
 
-## Ontwikkeling
+> The plugin cannot *create* scripts — the Xenia API has no endpoint for that;
+> you author them on the machine.
+
+## Finding the IP address
+
+Check the machine's display or your router/DHCP list. Preferably set a static IP
+via a DHCP reservation.
+
+## Development
 
 ```bash
-git clone https://github.com/JOUWGEBRUIKERSNAAM/homebridge-xenia-espresso.git
+git clone https://github.com/Yns80/homebridge-xenia-espresso.git
 cd homebridge-xenia-espresso
 npm install
 npm run build
 npm link
 ```
 
-In je Homebridge config map:
+In your Homebridge config directory:
 ```bash
 npm link homebridge-xenia-espresso
 ```
 
 ## API
 
-Deze plugin gebruikt de officiële Xenia REST API v2:
-- `GET  /api/v2/machine/status/` — machinestatus ophalen
-- `POST /api/v2/machine/control/` — machine besturen
-- `POST /api/v2/scripts/execute/` — script uitvoeren
-- `GET  /api/v2/scripts/stop` — script stoppen
+This plugin uses the official Xenia REST API v2:
+- `GET  /api/v2/overview` — temperatures, pressures, machine status
+- `POST /api/v2/machine/control/` — control the machine (on / off / ECO / steam boiler)
+- `GET  /api/v2/scripts/list` — list user scripts
+- `POST /api/v2/scripts/execute/` — run a script
+- `GET  /api/v2/scripts/stop` — stop the running script
 
-Zie [xenia-espresso.de/api.html](https://www.xenia-espresso.de/api.html) voor de volledige API documentatie.
+See [xenia-espresso.de/api.html](https://www.xenia-espresso.de/api.html) for the full API documentation.
 
-## Licentie
+## License
 
 Apache-2.0
