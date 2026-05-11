@@ -11,8 +11,10 @@ import { XeniaPlatform } from './platform';
  *   - TemperatureSensor "Brew Group Temperature"   → BG_SENS_TEMP_A
  *   - Thermostat "Boiler Target Temperature"       → BB_SET_TEMP
  *   - LeakSensor "Water Tank"        → PU_SENS_WATER_TANK_LEVEL
- *   - AirQualitySensor "Steam Boiler Pressure" → SB_SENS_PRESS (bar)
- *   - AirQualitySensor "Pump Pressure"         → PU_SENS_PRESS (bar)
+ *   - TemperatureSensor "Steam Boiler Pressure" → SB_SENS_PRESS (bar, displayed as °C in HomeKit)
+ *   - TemperatureSensor "Pump Pressure"         → PU_SENS_PRESS (bar, displayed as °C in HomeKit)
+ *   - Switch (momentary) per machine script     → /scripts/list + /scripts/execute/
+ *       (pressure profiles, pre-infusion, ...; flip on = run, auto-resets to off)
  */
 export declare class XeniaMachineAccessory {
     private readonly platform;
@@ -23,7 +25,8 @@ export declare class XeniaMachineAccessory {
     private brewBoilerTempSensor;
     private brewGroupTempSensor;
     private thermostat;
-    private waterSensor;
+    private waterSensor?;
+    private _waterTankType;
     private steamPressureSensor;
     private pumpPressureSensor;
     private infoService;
@@ -31,6 +34,13 @@ export declare class XeniaMachineAccessory {
     private _pollTimer;
     private state;
     constructor(platform: XeniaPlatform, accessory: PlatformAccessory);
+    /**
+     * Maakt een momentane Switch ("knop") voor elk script dat op de machine
+     * staat (drukprofielen, pre-infusie, ...). De plugin kan zelf geen scripts
+     * aanmaken — die maak je op de machine; deze knoppen voeren ze alleen uit.
+     */
+    private setupScriptButtons;
+    private wireScriptButton;
     private pollStatus;
     private setMachineOn;
     private setSteamOn;

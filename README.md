@@ -9,6 +9,7 @@ Homebridge plugin voor de **Xenia espressomachine** (DB / HX) met ESP32 WiFi mod
 - ☕ Machine aan/uit schakelen
 - 💨 Stoomboiler apart aan/uit
 - 🌿 ECO modus activeren
+- 📜 Scripts uitvoeren met een knop (drukprofielen, pre-infusie, …)
 - 🔄 Automatische status polling (geen cloud, volledig lokaal)
 
 ## Vereisten
@@ -49,6 +50,21 @@ Voeg het volgende toe aan je Homebridge `config.json`:
 |-------|------|-----------|--------------|
 | `ip` | string | — | **Verplicht.** IP-adres van de machine op je netwerk |
 | `pollInterval` | number | `30` | Polling interval in seconden (5–300) |
+| `waterTankSensor` | string | `filter` | Hoe een leeg waterreservoir in HomeKit verschijnt: `filter` / `contact` / `leak` / `none` |
+| `exposeScripts` | boolean | `true` | Maak een knop in HomeKit voor elk script dat op de machine staat. Druk = script uitvoeren. Maak de scripts eerst aan op de machine |
+
+### Scripts als knop
+
+De Xenia ondersteunt **scripts** waarmee je o.a. een volledig drukprofiel of een
+pre-infusie kunt instellen. Maak het script eerst aan op de machine (via de
+[script-editor](https://www.xenia-espresso.de) / het display). De plugin maakt
+dan automatisch voor elk script een momentane schakelaar ("knop") in de Home
+app — druk je hem aan, dan voert de machine het script uit en springt de knop
+weer uit. Bij het opstarten logt de plugin de beschikbare scripts (id → naam).
+Zet `exposeScripts` op `false` als je geen scriptknoppen wilt.
+
+> De plugin kan zelf geen scripts *aanmaken* — de Xenia API biedt daar geen
+> endpoint voor; je maakt ze op de machine.
 
 ## IP-adres vinden
 

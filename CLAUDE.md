@@ -73,16 +73,28 @@ homebridge-xenia-espresso` in the Homebridge config directory.
   | Water Tank (FilterMaintenance / ContactSensor / LeakSensor — configurable) | `water-filter` / `water-contact` / `water-sensor` | `PU_SENS_WATER_TANK_LEVEL == 0` |
   | TemperatureSensor "Steam Boiler Pressure" | `steam-pressure` | `SB_SENS_PRESS` (bar, shown as °C) |
   | TemperatureSensor "Pump Pressure" | `pump-pressure` | `PU_SENS_PRESS` (bar, shown as °C) |
+  | Switch (momentary, one per machine script) | `script-<id>` | `GET /scripts/list` (discovery) / `POST /scripts/execute/` (on press) |
   | AccessoryInformation | — | firmware/hardware revision fields repurposed to show shots / hours / power |
 - **Polling.** `pollStatus()` runs once at startup and then every
   `pollInterval` seconds (default 30, range 5–300). It fetches `/overview` and
   `/overview_single` in parallel and only calls `updateCharacteristic` when a
   value actually changed (avoids HomeKit log spam).
-- **Stale-service cleanup.** When `waterTankSensor` config changes, or when an
-  older plugin version used a different service type for the pressure tiles,
-  the constructor removes the now-unused services from the cached accessory.
-  Preserve this logic when adding/changing services — use `getServiceById` (not
-  `getService`) for lookups so Homebridge 2.x doesn't crash on duplicate UUIDs.
+- **Script buttons.** `setupScriptButtons()` (called once from the accessory
+  constructor) does an async `GET /scripts/list`, then creates one **momentary
+  `Switch`** per script (subtype `script-<id>`, named after the script). Flipping
+  it on calls `POST /scripts/execute/` and then `setTimeout`s the switch back to
+  off — `onGet` always returns `false`. Handlers are re-wired on every launch
+  (they don't survive a cache restore). If `/scripts/list` is unreachable at
+  startup, cached script switches are kept (and re-wired) rather than deleted.
+  Toggled by config `exposeScripts` (default `true`). The plugin can't *create*
+  scripts — the Xenia API has no such endpoint; users author them on the machine.
+- **Stale-service cleanup.** When `waterTankSensor` config changes, when an
+  older plugin version used a different service type for the pressure tiles, or
+  when a `script-<id>` switch no longer matches a script on the machine (or
+  `exposeScripts` is off), the constructor removes the now-unused services from
+  the cached accessory. Preserve this logic when adding/changing services — use
+  `getServiceById` (not `getService`) for lookups so Homebridge 2.x doesn't
+  crash on duplicate UUIDs.
 
 ## Xenia API quirks (xeniaApi.ts)
 
@@ -118,7 +130,10 @@ Endpoints used: `GET /overview`, `GET /overview_single`, `GET /machine`,
   English identifiers). Match the surrounding style of the file you edit; new
   user-facing log strings are fine in either, but stay consistent within a file.
 - Config keys (`config.schema.json` ↔ `platform.ts` ↔ `accessory.ts`) must
-  stay in sync: `name`, `ip`, `pollInterval`, `waterTankSensor`.
+  stay in sync: `name`, `ip`, `pollInterval`, `waterTankSensor`, `exposeScripts`.
+  Note `waterTankSensor` / `exposeScripts` are read straight off
+  `platform.config` in `accessory.ts`; `ip` / `pollInterval` flow through
+  `accessory.context` (set in `platform.ts`).
 - `PLUGIN_NAME` in `settings.ts` must equal `name` in `package.json`;
   `PLATFORM_NAME` must equal `pluginAlias` in `config.schema.json`.
 - No new runtime dependencies without good reason — the plugin currently has
