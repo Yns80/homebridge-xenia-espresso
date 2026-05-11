@@ -9,7 +9,7 @@ export const SteamBoilerStatus = { OFF: 1, ON: 2 } as const;
 export interface XeniaOverview {
   MA_EXTRACTIONS: number;
   MA_OPERATING_HOURS: number;   // in minutes
-  MA_STATUS: number;            // 0=off, 1=on, 2=eco, 3=brewing, 4=draining
+  MA_STATUS: number;            // 0=off, 1=on, 2=eco, 3=brewig, 4=draining
   MA_CLOCK: number;
   MA_CUR_PWR: number;           // watts
   MA_MAX_PWR: number;
@@ -169,7 +169,19 @@ export class XeniaApi {
       });
     } else if (data && typeof data === 'object') {
       let i = 0;
-      for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+      // Handle { index_list: [...], title_list: [...] } format (current Xenia firmware)
+          if (data && typeof data === 'object' && !Array.isArray(data)) {
+                  const obj = data as Record<string, unknown>;
+                  const idKey = Object.keys(obj).find(k => k.toLowerCase() === 'index_list');
+                  const nameKey = Object.keys(obj).find(k => k.toLowerCase() === 'title_list');
+                  if (idKey && nameKey && Array.isArray(obj[idKey]) && Array.isArray(obj[nameKey])) {
+                            const ids = obj[idKey] as unknown[];
+                            const names = obj[nameKey] as unknown[];
+                            ids.forEach((id, i) => put(id, names[i], i));
+                            return result;
+                  }
+          }
+          for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
         if (v && typeof v === 'object') {
           const o = v as Record<string, unknown>;
           put(pick(o, ['ID', 'Id', 'id']) ?? k, pick(o, ['NAME', 'Name', 'name', 'TITLE', 'title']) ?? k, Number(k));
