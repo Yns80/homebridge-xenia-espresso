@@ -60,7 +60,17 @@ export declare class XeniaApi {
     getOverviewSingle(): Promise<XeniaOverviewSingle | null>;
     /** Machine type and firmware versions */
     getMachine(): Promise<XeniaMachine | null>;
-    /** List user scripts: returns { id: name } */
+    /**
+     * List the scripts stored on the machine, normalised to `{ <id>: <name> }`.
+     *
+     * The Xenia firmware has used a few shapes for `/scripts/list` over the
+     * years — an `{ "1": "Name" }` object, a `{ "SCRIPTS": [...] }` wrapper, an
+     * array of `{ ID, NAME }` objects, or a plain array of names — so we accept
+     * all of them and log the raw response (it's invaluable when a machine
+     * returns something unexpected). Returns `null` when the request failed or
+     * the machine returned nothing (so cached buttons are kept); an empty object
+     * `{}` means "connected, but no scripts".
+     */
     getScripts(): Promise<Record<number, string> | null>;
     /** Machine control — action codes:
      *  0=OFF, 1=ON (with steam), 2=ECO, 3=SB_OFF, 4=SB_ON, 5=ON_SB_OFF

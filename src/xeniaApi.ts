@@ -114,8 +114,73 @@ export class XeniaApi {
   /** Machine type and firmware versions */
   async getMachine(): Promise<XeniaMachine | null> { return this.get<XeniaMachine>('/machine'); }
 
-  /** List user scripts: returns { id: name } */
-  async getScripts(): Promise<Record<number, string> | null> { return this.get('/scripts/list'); }
+  /**
+   * List the scripts stored on the machine, normalised to `{ <id>: <name> }`.
+   *
+   * The Xenia firmware has used a few shapes for `/scripts/list` over the
+   * years — an `{ "1": "Name" }` object, a `{ "SCRIPTS": [...] }` wrapper, an
+   * array of `{ ID, NAME }` objects, or a plain array of names — so we accept
+   * all of them and log the raw response (it's invaluable when a machine
+   * returns something unexpected). Returns `null` when the request failed or
+   * the machine returned nothing (so cached buttons are kept); an empty object
+   * `{}` means "connected, but no scripts".
+   */
+  async getScripts(): Promise<Record<number, string> | null> {
+    const raw = await this.request('GET', '/scripts/list');
+    this.log.info('[XeniaAPI] /scripts/list -> ' + JSON.stringify(raw));
+
+    if (
+      raw == null ||
+      (Array.isArray(raw) && raw.length === 0) ||
+      (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw as object).length === 0)
+    ) {
+      return null;
+    }
+
+    const result: Record<number, string> = {};
+    const put = (id: unknown, name: unknown, fallbackId: number) => {
+      let nId = Number(id);
+      if (!Number.isFinite(nId)) { nId = fallbackId; }
+      if (!Number.isFinite(nId)) { return; }
+      const nName = (name === undefined || name === null) ? '' : String(name).trim();
+      result[nId] = nName || `Script ${nId}`;
+    };
+    const pick = (o: Record<string, unknown>, keys: string[]) => {
+      for (const k of keys) { if (o[k] !== undefined && o[k] !== null) { return o[k]; } }
+      return undefined;
+    };
+
+    // Unwrap a single { SCRIPTS: ... } / { scripts: ... } wrapper.
+    let data: unknown = raw;
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const obj = data as Record<string, unknown>;
+      const keys = Object.keys(obj);
+      if (keys.length === 1 && keys[0].toLowerCase() === 'scripts') { data = obj[keys[0]]; }
+    }
+
+    if (Array.isArray(data)) {
+      data.forEach((entry, i) => {
+        if (entry && typeof entry === 'object') {
+          const o = entry as Record<string, unknown>;
+          put(pick(o, ['ID', 'Id', 'id', 'INDEX', 'index']) ?? i, pick(o, ['NAME', 'Name', 'name', 'TITLE', 'title']), i);
+        } else {
+          put(i, entry, i);
+        }
+      });
+    } else if (data && typeof data === 'object') {
+      let i = 0;
+      for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+        if (v && typeof v === 'object') {
+          const o = v as Record<string, unknown>;
+          put(pick(o, ['ID', 'Id', 'id']) ?? k, pick(o, ['NAME', 'Name', 'name', 'TITLE', 'title']) ?? k, Number(k));
+        } else {
+          put(k, v, i);
+        }
+        i++;
+      }
+    }
+    return result;
+  }
 
   /** Machine control — action codes:
    *  0=OFF, 1=ON (with steam), 2=ECO, 3=SB_OFF, 4=SB_ON, 5=ON_SB_OFF
