@@ -137,4 +137,7 @@ export class XeniaApi {
 
   /** Execute a script on the machine */
   async executeScript(scriptId: number): Promise<boolean> { return this.post('/scripts/execute/', { ID: String(scriptId) }); }
+
+  /** Stop whichever script is currently running (GET, no parameters) */
+  async stopScript(): Promise<boolean> { await this.request('GET', '/scripts/stop'); return true; }
 }

@@ -35,9 +35,11 @@ export declare class XeniaMachineAccessory {
     private state;
     constructor(platform: XeniaPlatform, accessory: PlatformAccessory);
     /**
-     * Maakt een momentane Switch ("knop") voor elk script dat op de machine
-     * staat (drukprofielen, pre-infusie, ...). De plugin kan zelf geen scripts
-     * aanmaken — die maak je op de machine; deze knoppen voeren ze alleen uit.
+     * Creates a momentary Switch ("button") for every script stored on the
+     * machine (pressure profiles, pre-infusion, ...), plus a single generic
+     * "Stop Script" button that aborts whichever script is running. The plugin
+     * cannot create scripts — you author those on the machine; these buttons
+     * only run / stop them.
      */
     private setupScriptButtons;
     private wireScriptButton;

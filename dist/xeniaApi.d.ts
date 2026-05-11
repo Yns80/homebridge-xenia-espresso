@@ -74,5 +74,7 @@ export declare class XeniaApi {
     setBrewBoilerTemp(bbTemp: number): Promise<boolean>;
     /** Execute a script on the machine */
     executeScript(scriptId: number): Promise<boolean>;
+    /** Stop whichever script is currently running (GET, no parameters) */
+    stopScript(): Promise<boolean>;
 }
 //# sourceMappingURL=xeniaApi.d.ts.map

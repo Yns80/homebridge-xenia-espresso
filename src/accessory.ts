@@ -230,27 +230,49 @@ export class XeniaMachineAccessory {
   }
 
   // ──────────────────────────────────────────────────────────────────
-  // SCRIPT KNOPPEN
+  // SCRIPT BUTTONS
   // ──────────────────────────────────────────────────────────────────
 
   /**
-   * Maakt een momentane Switch ("knop") voor elk script dat op de machine
-   * staat (drukprofielen, pre-infusie, ...). De plugin kan zelf geen scripts
-   * aanmaken — die maak je op de machine; deze knoppen voeren ze alleen uit.
+   * Creates a momentary Switch ("button") for every script stored on the
+   * machine (pressure profiles, pre-infusion, ...), plus a single generic
+   * "Stop Script" button that aborts whichever script is running. The plugin
+   * cannot create scripts — you author those on the machine; these buttons
+   * only run / stop them.
    */
   private async setupScriptButtons() {
-    const exposeScripts = this.platform.config['exposeScripts'] !== false; // standaard aan
+    const exposeScripts = this.platform.config['exposeScripts'] !== false; // default: on
+    const stopSubtype = 'script-stop';
+    const isScriptSubtype = (s?: string): s is string => !!s && s.startsWith('script-');
+
+    // Generic stop button (independent of which scripts exist).
+    if (exposeScripts) {
+      const stopName = 'Stop Script';
+      const stopService =
+        this.accessory.getServiceById(this.platform.Service.Switch, stopSubtype) ||
+        this.accessory.addService(this.platform.Service.Switch, stopName, stopSubtype);
+      stopService
+        .setCharacteristic(this.platform.Characteristic.Name, stopName)
+        .setCharacteristic(this.platform.Characteristic.ConfiguredName, stopName);
+      stopService.getCharacteristic(this.platform.Characteristic.On)
+        .onGet(() => false)
+        .onSet(async (value) => {
+          if (!value) { return; }
+          this.platform.log.info('[Xenia] Stopping running script...');
+          await this.api.stopScript();
+          setTimeout(() => stopService.updateCharacteristic(this.platform.Characteristic.On, false), 1000);
+        });
+    }
 
     let scripts: Record<number, string> | null = {};
     if (exposeScripts) {
       scripts = await this.api.getScripts();
       if (scripts === null) {
-        // Machine niet bereikbaar bij het opstarten — bestaande (gecachede)
-        // scriptknoppen behouden en alleen hun handlers opnieuw koppelen
-        // (handlers overleven een herstart niet).
-        this.platform.log.warn('[Xenia] Scriptlijst niet beschikbaar — scriptknoppen worden niet vernieuwd');
+        // Machine unreachable at startup — keep the cached script buttons and
+        // just re-wire their handlers (handlers don't survive a restart).
+        this.platform.log.warn('[Xenia] Script list unavailable — script buttons not refreshed');
         for (const service of this.accessory.services) {
-          if (service.subtype?.startsWith('script-')) {
+          if (isScriptSubtype(service.subtype) && service.subtype !== stopSubtype) {
             this.wireScriptButton(service, Number(service.subtype.slice('script-'.length)));
           }
         }
@@ -259,6 +281,7 @@ export class XeniaMachineAccessory {
     }
 
     const wanted = new Set<string>();
+    if (exposeScripts) { wanted.add(stopSubtype); }
     for (const [idStr, rawName] of Object.entries(scripts)) {
       const id = Number(idStr);
       if (!Number.isFinite(id)) { continue; }
@@ -272,14 +295,14 @@ export class XeniaMachineAccessory {
         .setCharacteristic(this.platform.Characteristic.Name, name)
         .setCharacteristic(this.platform.Characteristic.ConfiguredName, name);
       this.wireScriptButton(service, id);
-      this.platform.log.info(`[Xenia] Scriptknop beschikbaar: "${name}" (id ${id})`);
+      this.platform.log.info(`[Xenia] Script button available: "${name}" (id ${id})`);
     }
 
-    // Verwijder scriptknoppen die niet meer op de machine staan (of allemaal
-    // wanneer de functie is uitgeschakeld).
+    // Remove script buttons that no longer exist on the machine (or all of
+    // them, including the stop button, when the feature is disabled).
     for (const service of [...this.accessory.services]) {
-      if (service.subtype?.startsWith('script-') && !wanted.has(service.subtype)) {
-        this.platform.log.info(`[Xenia] Verwijder verouderde scriptknop: ${service.subtype}`);
+      if (isScriptSubtype(service.subtype) && !wanted.has(service.subtype)) {
+        this.platform.log.info(`[Xenia] Removing obsolete script button: ${service.subtype}`);
         this.accessory.removeService(service);
       }
     }
@@ -290,14 +313,14 @@ export class XeniaMachineAccessory {
       .onGet(() => false)
       .onSet(async (value) => {
         if (!value) { return; }
-        this.platform.log.info(`[Xenia] Script ${scriptId} uitvoeren...`);
+        this.platform.log.info(`[Xenia] Running script ${scriptId}...`);
         const ok = await this.api.executeScript(scriptId);
         if (ok) {
-          this.platform.log.info(`[Xenia] Script ${scriptId} gestart`);
+          this.platform.log.info(`[Xenia] Script ${scriptId} started`);
         } else {
-          this.platform.log.warn(`[Xenia] Script ${scriptId} kon niet worden gestart`);
+          this.platform.log.warn(`[Xenia] Could not start script ${scriptId}`);
         }
-        // Momentane "knop": kort daarna weer uitschakelen.
+        // Momentary "button": flip back off shortly after.
         setTimeout(() => service.updateCharacteristic(this.platform.Characteristic.On, false), 1000);
       });
   }
