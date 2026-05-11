@@ -6,6 +6,10 @@ on:
   release:
     types: [created]
 
+# Needed so the "Commit dist/ back to repo" step can push to main.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,5 +35,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add dist/
-          git diff --staged --quiet || git commit -m "chore: build dist [skip ci]"
-          git push
+          if git diff --staged --quiet; then
+            echo "dist/ already up to date — nothing to commit"
+          else
+            git commit -m "chore: build dist [skip ci]"
+            git push
+          fi
