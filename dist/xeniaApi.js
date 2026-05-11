@@ -137,6 +137,18 @@ class XeniaApi {
         }
         else if (data && typeof data === 'object') {
             let i = 0;
+            // Handle { index_list: [...], title_list: [...] } format (current Xenia firmware)
+            if (data && typeof data === 'object' && !Array.isArray(data)) {
+                const obj = data;
+                const idKey = Object.keys(obj).find(k => k.toLowerCase() === 'index_list');
+                const nameKey = Object.keys(obj).find(k => k.toLowerCase() === 'title_list');
+                if (idKey && nameKey && Array.isArray(obj[idKey]) && Array.isArray(obj[nameKey])) {
+                    const ids = obj[idKey];
+                    const names = obj[nameKey];
+                    ids.forEach((id, i) => put(id, names[i], i));
+                    return result;
+                }
+            }
             for (const [k, v] of Object.entries(data)) {
                 if (v && typeof v === 'object') {
                     const o = v;
