@@ -64,7 +64,11 @@ export class XeniaMachineAccessory {
     this.infoService
       .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Xenia Espresso GmbH')
       .setCharacteristic(this.platform.Characteristic.Model, 'Xenia DB / HX')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, ip);
+      .setCharacteristic(this.platform.Characteristic.SerialNumber, ip)
+      .setCharacteristic(this.platform.Characteristic.FirmwareRevision, '...');
+
+    // Fetch real firmware version from machine at startup
+    this.fetchFirmwareVersion();
 
     // ── Switch: Machine power (MA_STATUS on/off) ─────────────────────
     this.mainSwitch =
@@ -227,6 +231,18 @@ export class XeniaMachineAccessory {
     this._pollTimer = setInterval(() => this.pollStatus(), pollInterval);
 
     this.platform.log.info(`Xenia accessory klaar — IP: ${ip}, polling elke ${pollInterval / 1000}s`);
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // FIRMWARE VERSION
+  // ──────────────────────────────────────────────────────────────────
+
+  private async fetchFirmwareVersion() {
+    const machine = await this.api.getMachine();
+    if (!machine) { return; }
+    const fw = `FW ${machine.MA_MAIN_FW} / ESP ${machine.MA_ESP_FW}`;
+    this.infoService.updateCharacteristic(this.platform.Characteristic.FirmwareRevision, fw);
+    this.platform.log.info(`[Xenia] Machine type: ${machine.MA_TYPE} | ${fw}`);
   }
 
   // ──────────────────────────────────────────────────────────────────
