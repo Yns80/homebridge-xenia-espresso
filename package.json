@@ -6,7 +6,9 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "prepublishOnly": "npm run build",
+    "postinstall": "npm run build"
   },
   "files": [
     "dist/",
@@ -23,10 +25,14 @@
   "homepage": "https://github.com/Yns80/homebridge-xenia-espresso#readme",
   "keywords": [
     "homebridge-plugin",
+    "homebridge",
     "espresso",
     "xenia",
+    "xenia-espresso",
     "coffee",
-    "homekit"
+    "homekit",
+    "home-automation",
+    "esp32"
   ],
   "author": "Yunus Kayhan",
   "license": "Apache-2.0",
@@ -39,5 +45,10 @@
     "@types/node": "^20.0.0",
     "homebridge": "^1.8.0",
     "typescript": "^5.4.0"
+  },
+  "homebridge": {
+    "pluginAlias": "XeniaEspresso",
+    "pluginType": "platform",
+    "singular": true
   }
 }
