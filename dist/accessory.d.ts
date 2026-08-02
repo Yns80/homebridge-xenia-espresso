@@ -34,6 +34,7 @@ export declare class XeniaMachineAccessory {
     private _pollTimer;
     private state;
     constructor(platform: XeniaPlatform, accessory: PlatformAccessory);
+    private fetchFirmwareVersion;
     /**
      * Creates a momentary Switch ("button") for every script stored on the
      * machine (pressure profiles, pre-infusion, ...), plus a single generic
