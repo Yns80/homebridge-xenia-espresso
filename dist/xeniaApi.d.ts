@@ -1,15 +1,7 @@
 import { Logger } from 'homebridge';
-export declare const MachineStatus: {
-    readonly OFF: 0;
-    readonly ON: 1;
-    readonly ECO: 2;
-    readonly BREWING: 3;
-    readonly DRAINING: 4;
-};
-export declare const SteamBoilerStatus: {
-    readonly OFF: 1;
-    readonly ON: 2;
-};
+export interface XeniaStatus {
+    MA_STATUS: number;
+}
 export interface XeniaOverview {
     MA_EXTRACTIONS: number;
     MA_OPERATING_HOURS: number;
@@ -18,73 +10,86 @@ export interface XeniaOverview {
     MA_CUR_PWR: number;
     MA_MAX_PWR: number;
     MA_ENERGY_TOTAL_KWH: number;
-    MA_LAST_EXTRACTION_ML: string;
     BG_SENS_TEMP_A: number;
     BG_LEVEL_PW_CONTROL: number;
-    BB_SENS_TEMP_A: number;
-    BB_LEVEL_PW_CONTROL: number;
     PU_SENS_PRESS: number;
     PU_LEVEL_PW_CONTROL: number;
     PU_SET_LEVEL_PW_CONTROL: number;
-    PU_SENS_FLOW_METER_ML: number;
     SB_SENS_PRESS: number;
+    BB_SENS_TEMP_A: number;
+    BB_LEVEL_PW_CONTROL: number;
     SB_STATUS: number;
-    SCALE_WEIGHT: number;
+    MA_LAST_EXTRACTION_ML: string;
 }
 export interface XeniaOverviewSingle {
     BG_SET_TEMP: number;
-    BB_SET_TEMP: number;
     PU_SET_PRESS: number;
-    SB_SET_PRESS: number;
     PU_SENS_WATER_TANK_LEVEL: number;
-    MA_EXTRACTIONS_START: number;
+    SB_SET_PRESS: number;
+    BB_SET_TEMP: number;
     PSP: number;
     MA_MAC: string;
-    POP_UP: number | null;
+    MA_EXTRACTIONS_START: number;
+    POP_UP?: number;
 }
-export interface XeniaMachine {
-    MA_TYPE: string;
-    MA_MAIN_FW: string;
-    MA_ESP_FW: string;
+export interface XeniaMachineInfo {
+    MA_TYPE: number;
+    MA_FIX_WATER_SUPPLY: number;
+    MA_HEATUP_FLUSH_EN: number;
+    MA_SET_TIMER_ECO_MA: number;
+    MA_SET_TIMER_POWERDOWN: number;
+    MA_MAX_AMPERE: number;
+    MA_ENERGY_TOTAL_KWH: number;
+    FW_VERSION_MAJOR: number;
+    FW_VERSION_MINOR: number;
+    ESP_FW_MAJOR: number;
+    ESP_FW_MINOR: number;
+    MA_SN: string;
 }
+export interface XeniaDiagram {
+    BG_LEVEL_PW_CONTROL: number;
+    BB_LEVEL_PW_CONTROL: number;
+    BG_SENS_TEMP_A: number;
+    BB_SENS_TEMP_A: number;
+    PU_SENS_FLOW_METER_ML: number;
+    PU_SENS_PRESS: number;
+}
+/**
+ * HTTP client voor de Xenia ESP32 API v2.
+ * Quirk: POST requests verwachten JSON body maar met
+ * Content-Type: application/x-www-form-urlencoded header.
+ * ECONNRESET na POST = succes (ESP32 sluit socket na response).
+ */
 export declare class XeniaApi {
     private readonly ip;
     private readonly log;
     constructor(ip: string, log: Logger);
-    private request;
-    private get;
-    private post;
-    /** Full overview: temperatures, pressure, status, flow, scale */
+    private httpGet;
+    private httpPost;
+    getStatus(): Promise<XeniaStatus | null>;
     getOverview(): Promise<XeniaOverview | null>;
-    /** Settings: target temperatures, water tank level */
     getOverviewSingle(): Promise<XeniaOverviewSingle | null>;
-    /** Machine type and firmware versions */
-    getMachine(): Promise<XeniaMachine | null>;
-    /**
-     * List the scripts stored on the machine, normalised to `{ <id>: <name> }`.
-     *
-     * The Xenia firmware has used a few shapes for `/scripts/list` over the
-     * years — an `{ "1": "Name" }` object, a `{ "SCRIPTS": [...] }` wrapper, an
-     * array of `{ ID, NAME }` objects, or a plain array of names — so we accept
-     * all of them and log the raw response (it's invaluable when a machine
-     * returns something unexpected). Returns `null` when the request failed or
-     * the machine returned nothing (so cached buttons are kept); an empty object
-     * `{}` means "connected, but no scripts".
-     */
-    getScripts(): Promise<Record<number, string> | null>;
-    /** Machine control — action codes:
-     *  0=OFF, 1=ON (with steam), 2=ECO, 3=SB_OFF, 4=SB_ON, 5=ON_SB_OFF
-     *  Values sent as strings per Xenia API: {"action":"1"} */
+    getMachineInfo(): Promise<XeniaMachineInfo | null>;
+    getDiagram(): Promise<XeniaDiagram | null>;
+    /** Machine aan/uit/eco: 0=uit, 1=aan, 2=eco, 3=stoom uit, 4=stoom aan, 5=aan+stoom uit */
     control(action: number): Promise<boolean>;
-    /** Toggle steam boiler on/off */
+    /** Stoomboiler aan/uit */
     toggleSteamBoiler(on: boolean): Promise<boolean>;
-    /** Set brew group + brew boiler target temperature */
+    /** Koffieboiler temperatuur aanpassen (+0.1 of -0.1) */
+    incDecBrewBoiler(delta: number): Promise<boolean>;
+    /** Stoomboiler druk aanpassen (+0.1 of -0.1) */
+    incDecSteamBoiler(delta: number): Promise<boolean>;
+    /** Brewgroup + koffieboiler doeltemperatuur direct instellen */
     setTemperatures(bgTemp: number, bbTemp: number): Promise<boolean>;
-    /** Set brew boiler target temperature only */
-    setBrewBoilerTemp(bbTemp: number): Promise<boolean>;
-    /** Execute a script on the machine */
+    /** Machine instellingen aanpassen */
+    setMachineSettings(settings: {
+        MA_SET_TIMER_ECO_MA?: number;
+        MA_SET_TIMER_POWERDOWN?: number;
+        MA_FIX_WATER_SUPPLY?: number;
+        MA_MAX_AMPERE?: number;
+        MA_HEATUP_FLUSH_EN?: number;
+    }): Promise<boolean>;
+    /** Script uitvoeren */
     executeScript(scriptId: number): Promise<boolean>;
-    /** Stop whichever script is currently running (GET, no parameters) */
-    stopScript(): Promise<boolean>;
 }
 //# sourceMappingURL=xeniaApi.d.ts.map
